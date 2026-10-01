@@ -1,0 +1,6 @@
+{
+  "name": "SANWOLF",
+  "description": "Professional Pro DAW for music producers with AI modular synthesis, node rack, polyrhythmic step sequencer, piano roll, low-latency audio engine, mastering and cloud sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
