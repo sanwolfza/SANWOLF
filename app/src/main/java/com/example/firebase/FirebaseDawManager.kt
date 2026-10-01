@@ -28,6 +28,14 @@ data class CloudProjectSummary(
 
 class FirebaseDawManager(private val context: Context) {
 
+    init {
+        try {
+            com.google.firebase.FirebaseApp.initializeApp(context)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
     private val prefs: SharedPreferences by lazy {

@@ -76,33 +76,37 @@ class SanwolfAudioEngine(private val context: Context) {
     }
 
     private fun initAudioTrack() {
-        val minBufferSize = AudioTrack.getMinBufferSize(
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_OUT_STEREO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-        val bufferSize = maxOf(minBufferSize, BUFFER_SIZE * NUM_CHANNELS * 2 * 4)
-
-        audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
+        try {
+            val minBufferSize = AudioTrack.getMinBufferSize(
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_OUT_STEREO,
+                AudioFormat.ENCODING_PCM_16BIT
             )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(SAMPLE_RATE)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .build()
-            )
-            .setBufferSizeInBytes(bufferSize)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+            val bufferSize = maxOf(minBufferSize, BUFFER_SIZE * NUM_CHANNELS * 2 * 4)
 
-        audioTrack?.play()
-        startAudioProcessingLoop()
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+
+            audioTrack?.play()
+            startAudioProcessingLoop()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun startAudioProcessingLoop() {
