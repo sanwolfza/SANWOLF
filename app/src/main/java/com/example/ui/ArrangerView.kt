@@ -160,7 +160,7 @@ fun ArrangerView(
                     ) {
                         Text(
                             text = "TRACKS (${project.tracks.size})",
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = SanwolfTextSecondary,
                             letterSpacing = 0.5.sp
@@ -170,13 +170,13 @@ fun ArrangerView(
                         Box {
                             IconButton(
                                 onClick = { showAddTrackMenu = true },
-                                modifier = Modifier.size(24.dp).testTag("add_track_button")
+                                modifier = Modifier.size(34.dp).testTag("add_track_button")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
-                                    contentDescription = "Add Track",
+                                    contentDescription = "Add track",
                                     tint = SanwolfGold,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
 
@@ -235,6 +235,36 @@ fun ArrangerView(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize()
                     ) {
+                        if (project.tracks.isEmpty()) {
+                            item {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MusicNote,
+                                        contentDescription = null,
+                                        tint = SanwolfTextSecondary,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "No tracks yet",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = SanwolfTextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Tap + above to add an instrument or drum track, import audio, or press Record to capture your mic.",
+                                        fontSize = 12.sp,
+                                        color = SanwolfTextSecondary
+                                    )
+                                }
+                            }
+                        }
                         itemsIndexed(project.tracks) { index, track ->
                             TrackHeaderItem(
                                 track = track,
