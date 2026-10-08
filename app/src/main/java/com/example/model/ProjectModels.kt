@@ -234,6 +234,8 @@ data class MasteringConfig(
     var stereoWidth: Float = 1.25f,
     var compressorThresholdDb: Float = -12f,
     var limiterCeilingDb: Float = -0.3f,
+    // Drive into the limiter (dB). Added later; defaults to 0 for older saved projects.
+    var limiterGainDb: Float = 0f,
     var profileName: String = "Modern EDM / Trap Punch"
 )
 
