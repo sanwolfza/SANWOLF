@@ -33,7 +33,15 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Create .env from secrets
-        run: echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY=$GEMINI_API_KEY" > .env
+          else
+            echo "GEMINI_API_KEY secret is not set; falling back to the .env.example placeholder"
+            cp .env.example .env
+          fi
 
       - name: Build debug APK
         run: ./gradlew assembleDebug
