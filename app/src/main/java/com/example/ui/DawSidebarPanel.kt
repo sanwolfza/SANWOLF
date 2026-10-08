@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,6 +60,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -137,7 +141,7 @@ fun DawSidebarPanel(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "STUDIO PANEL",
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
                     color = SanwolfGold,
                     letterSpacing = 1.sp
@@ -145,13 +149,13 @@ fun DawSidebarPanel(
             }
             IconButton(
                 onClick = onCloseSidebar,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.ChevronLeft,
-                    contentDescription = "Collapse Sidebar",
+                    contentDescription = "Hide studio panel",
                     tint = SanwolfTextSecondary,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
@@ -168,6 +172,46 @@ fun DawSidebarPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Group 0: TRANSPORT (play / stop / record)
+            SidebarGroup(title = "TRANSPORT") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    SidebarTransportButton(
+                        icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        label = if (isPlaying) "Pause" else "Play",
+                        description = if (isPlaying) "Pause playback" else "Play",
+                        tint = if (isPlaying) SanwolfLime else SanwolfTextPrimary,
+                        onClick = onPlayToggle,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SidebarTransportButton(
+                        icon = Icons.Default.Stop,
+                        label = "Stop",
+                        description = "Stop playback and return to start",
+                        tint = SanwolfMagenta,
+                        onClick = onStop,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SidebarTransportButton(
+                        icon = Icons.Default.FiberManualRecord,
+                        label = if (isRecording) "Stop rec" else "Record",
+                        description = if (isRecording) "Stop recording" else "Record from microphone",
+                        tint = Color.Red,
+                        highlighted = isRecording,
+                        onClick = onRecordToggle,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isRecording) "Recording from the mic… tap Stop rec when done." else "Record adds your mic take as a new audio track.",
+                    fontSize = 12.sp,
+                    color = SanwolfTextSecondary
+                )
+            }
+
             // Group 1: MASTER CLOCK & TEMPO
             SidebarGroup(title = "MASTER CLOCK & TEMPO") {
 
@@ -186,7 +230,7 @@ fun DawSidebarPanel(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = SanwolfCyan,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(SanwolfBlack)
@@ -203,7 +247,7 @@ fun DawSidebarPanel(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             color = SanwolfGold,
-                            fontSize = 11.sp,
+                            fontSize = 13.sp,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(SanwolfBlack)
@@ -211,7 +255,8 @@ fun DawSidebarPanel(
                                     val nextBpm = if (project.bpm >= 150) 115 else project.bpm + 5
                                     onBpmChange(nextBpm)
                                 }
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                .semantics { contentDescription = "Tempo ${project.bpm} BPM. Tap to raise by 5." }
+                                .padding(horizontal = 8.dp, vertical = 12.dp)
                         )
                     }
                 }
@@ -227,30 +272,30 @@ fun DawSidebarPanel(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(30.dp)
+                            .height(44.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (canUndo) SanwolfPanelElevated else SanwolfBlack.copy(alpha = 0.5f))
                             .clickable(enabled = canUndo) { onUndo() },
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = if (canUndo) SanwolfTextPrimary else SanwolfTextMuted, modifier = Modifier.size(14.dp))
-                            Text("UNDO", fontSize = 9.sp, color = if (canUndo) SanwolfTextPrimary else SanwolfTextMuted, fontWeight = FontWeight.Bold)
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = if (canUndo) SanwolfTextPrimary else SanwolfTextMuted, modifier = Modifier.size(18.dp))
+                            Text("UNDO", fontSize = 12.sp, color = if (canUndo) SanwolfTextPrimary else SanwolfTextMuted, fontWeight = FontWeight.Bold)
                         }
                     }
 
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(30.dp)
+                            .height(44.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (canRedo) SanwolfPanelElevated else SanwolfBlack.copy(alpha = 0.5f))
                             .clickable(enabled = canRedo) { onRedo() },
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = if (canRedo) SanwolfTextPrimary else SanwolfTextMuted, modifier = Modifier.size(14.dp))
-                            Text("REDO", fontSize = 9.sp, color = if (canRedo) SanwolfTextPrimary else SanwolfTextMuted, fontWeight = FontWeight.Bold)
+                            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = if (canRedo) SanwolfTextPrimary else SanwolfTextMuted, modifier = Modifier.size(18.dp))
+                            Text("REDO", fontSize = 12.sp, color = if (canRedo) SanwolfTextPrimary else SanwolfTextMuted, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -264,6 +309,7 @@ fun DawSidebarPanel(
                         .clip(RoundedCornerShape(6.dp))
                         .background(SanwolfPanelElevated)
                         .clickable { onToggleFocusMode() }
+                        .heightIn(min = 48.dp)
                         .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -276,7 +322,7 @@ fun DawSidebarPanel(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Immersion Focus", fontSize = 11.sp, color = SanwolfTextPrimary, fontWeight = FontWeight.Medium)
+                        Text("Focus mode (hide panels)", fontSize = 13.sp, color = SanwolfTextPrimary, fontWeight = FontWeight.Medium)
                     }
                     Box(
                         modifier = Modifier
@@ -305,7 +351,7 @@ fun DawSidebarPanel(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.GraphicEq, contentDescription = "Metronome", tint = if (isMetronomeEnabled) SanwolfLime else SanwolfTextSecondary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Click Metronome", fontSize = 11.sp, color = SanwolfTextPrimary)
+                            Text("Metronome click", fontSize = 13.sp, color = SanwolfTextPrimary)
                         }
                         Switch(
                             checked = isMetronomeEnabled,
@@ -313,8 +359,7 @@ fun DawSidebarPanel(
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = SanwolfLime,
                                 checkedTrackColor = SanwolfLime.copy(alpha = 0.4f)
-                            ),
-                            modifier = Modifier.size(36.dp, 20.dp)
+                            )
                         )
                     }
 
@@ -326,7 +371,7 @@ fun DawSidebarPanel(
                             Slider(
                                 value = metronomeVolume,
                                 onValueChange = onMetronomeVolumeChange,
-                                modifier = Modifier.weight(1f).height(16.dp),
+                                modifier = Modifier.weight(1f).semantics { contentDescription = "Metronome volume" },
                                 colors = SliderDefaults.colors(thumbColor = SanwolfGold, activeTrackColor = SanwolfGold)
                             )
                         }
@@ -399,10 +444,11 @@ fun DawSidebarPanel(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = project.title,
-                                fontSize = 11.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Black,
                                 color = SanwolfTextPrimary,
-                                maxLines = 1
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         Box(
@@ -412,8 +458,8 @@ fun DawSidebarPanel(
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = if (project.isCloudSynced) "FIRESTORE SYNCED" else "UNSAVED EDITS",
-                                fontSize = 8.sp,
+                                text = if (project.isCloudSynced) "SAVED" else "UNSAVED",
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (project.isCloudSynced) SanwolfLime else SanwolfGold
                             )
@@ -422,7 +468,7 @@ fun DawSidebarPanel(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "${project.bpm} BPM • ${project.tracks.size} Tracks",
-                        fontSize = 9.sp,
+                        fontSize = 12.sp,
                         color = SanwolfTextSecondary
                     )
                 }
@@ -476,8 +522,8 @@ fun DawSidebarPanel(
         // --- Sidebar Footer ---
         Divider(color = SanwolfPanelBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 10.dp))
         Text(
-            text = "Master Vol:",
-            fontSize = 9.sp,
+            text = "Master volume",
+            fontSize = 12.sp,
             color = SanwolfTextSecondary,
             fontWeight = FontWeight.Bold
         )
@@ -491,7 +537,7 @@ fun DawSidebarPanel(
             Slider(
                 value = project.masterVolume,
                 onValueChange = onMasterVolumeChange,
-                modifier = Modifier.weight(1f).height(16.dp),
+                modifier = Modifier.weight(1f).semantics { contentDescription = "Master volume" },
                 colors = SliderDefaults.colors(thumbColor = SanwolfGold, activeTrackColor = SanwolfGold)
             )
         }
@@ -506,7 +552,7 @@ private fun SidebarGroup(
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = title,
-            fontSize = 9.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = SanwolfTextMuted,
             letterSpacing = 0.8.sp,
@@ -527,7 +573,7 @@ private fun SidebarMenuButton(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
+            .height(48.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (isAi) SanwolfGoldDim else SanwolfPanelElevated)
             .border(1.dp, if (isAi) SanwolfGold else Color.Transparent, RoundedCornerShape(6.dp))
@@ -540,19 +586,24 @@ private fun SidebarMenuButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
                 Icon(
                     imageVector = icon,
-                    contentDescription = label,
+                    contentDescription = null,
                     tint = if (isAi) Color.White else color,
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = label,
                     color = if (isAi) Color.White else SanwolfTextPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             if (isAi) {
@@ -562,7 +613,7 @@ private fun SidebarMenuButton(
                         .background(SanwolfGold)
                         .padding(horizontal = 4.dp, vertical = 2.dp)
                 ) {
-                    Text("AI", fontSize = 8.sp, color = SanwolfBlack, fontWeight = FontWeight.Black)
+                    Text("AI", fontSize = 10.sp, color = SanwolfBlack, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -592,14 +643,52 @@ private fun TapTempoButton(onBpmChange: (Int) -> Unit) {
                     onBpmChange(newBpm.coerceIn(40, 300))
                 }
             }
-            .padding(horizontal = 6.dp, vertical = 4.dp),
+            .semantics { contentDescription = "Tap tempo: tap repeatedly in time to set the BPM" }
+            .padding(horizontal = 10.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = "TAP",
             color = SanwolfGold,
             fontWeight = FontWeight.Bold,
-            fontSize = 9.sp
+            fontSize = 13.sp
+        )
+    }
+}
+
+@Composable
+private fun SidebarTransportButton(
+    icon: ImageVector,
+    label: String,
+    description: String,
+    tint: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    highlighted: Boolean = false
+) {
+    Column(
+        modifier = modifier
+            .height(56.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (highlighted) tint.copy(alpha = 0.25f) else SanwolfPanelElevated)
+            .border(1.dp, if (highlighted) tint else SanwolfPanelBorder, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = description },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(22.dp)
+        )
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = SanwolfTextPrimary,
+            maxLines = 1
         )
     }
 }
