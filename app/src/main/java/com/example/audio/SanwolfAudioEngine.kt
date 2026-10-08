@@ -40,6 +40,8 @@ class SanwolfAudioEngine(private val context: Context) {
         /** Sequencer resolution inside a block (frames). Keeps step timing within ~3 ms. */
         private const val SEQ_CHUNK = 128
         private const val BYTES_PER_FRAME = NUM_CHANNELS * 2 // 16-bit PCM
+        /** Longest song loop (beats): matches the arranger's 16-bar timeline. */
+        const val MAX_LOOP_BEATS = 64.0
     }
 
     private var audioTrack: AudioTrack? = null
@@ -73,7 +75,17 @@ class SanwolfAudioEngine(private val context: Context) {
     val goniometerPoints = FloatArray(128)
 
     // Master limiter and VoiceManager
-    private val lookAheadLimiter = LookAheadLimiter(SAMPLE_RATE, 5.0f, 80.0f, -0.3f)
+    // Master bus (EQ, glue compressor, width, drive, limiter); shared with WAV export
+    private val masterBus = MasterBusProcessor(SAMPLE_RATE)
+
+    /** Master-bus meters for the mastering panel (updated once per audio block). */
+    @Volatile
+    var compressorReductionDb = 0f
+    @Volatile
+    var limiterReductionDb = 0f
+    /** Short-term RMS of the master output in dBFS (an RMS reading, not LUFS). */
+    @Volatile
+    var masterRmsDb = -90f
     val voiceManager = VoiceManager()
 
     // Media players for imported audio stem playback
@@ -171,10 +183,7 @@ class SanwolfAudioEngine(private val context: Context) {
         val gonioStride = BUFFER_SIZE / 64
         val bandSize = BUFFER_SIZE / 8
 
-        // Cached mastering tone gain (pow() only when the dB settings change)
-        var cachedLowDb = Float.NaN
-        var cachedHighDb = Float.NaN
-        var cachedToneGain = 1f
+        val grScratch = FloatArray(2)
 
         // Once the mix has been silent long enough to flush the limiter, idle blocks skip DSP
         var outputSilent = false
@@ -197,32 +206,13 @@ class SanwolfAudioEngine(private val context: Context) {
             val bpm = (proj?.bpm ?: 120).coerceAtLeast(1)
             val samplesPerBeat = (SAMPLE_RATE * 60.0) / bpm
             val vol = (proj?.masterVolume ?: masterVolume).coerceIn(0f, 1.5f)
-            val mConfig = proj?.masteringConfig
-            val masteringOn = mConfig != null && mConfig.enabled
-            var toneGain = 1f
-            var width = 1f
-            if (masteringOn && mConfig != null) {
-                val lowDb = mConfig.lowGainDb
-                val highDb = mConfig.highGainDb
-                if (lowDb != cachedLowDb || highDb != cachedHighDb) {
-                    cachedLowDb = lowDb
-                    cachedHighDb = highDb
-                    val lowBoost = 10.0.pow(lowDb / 40.0).toFloat()
-                    val highBoost = 10.0.pow(highDb / 40.0).toFloat()
-                    cachedToneGain = (lowBoost + highBoost) * 0.5f
-                }
-                toneGain = cachedToneGain
-                width = mConfig.stereoWidth
-                lookAheadLimiter.ceilingDb = mConfig.limiterCeilingDb
-            } else {
-                lookAheadLimiter.ceilingDb = -0.3f
-            }
-            val preGain = vol * toneGain
+            masterBus.configure(proj?.masteringConfig, vol)
 
             // ---- Sequencer + voice rendering, in small chunks for tight step timing ----
             var anyVoiceOutput = false
             var maxSteps = 32
             var loopBeats = 8.0
+            var noteLoopBeats = 0.0
             if (playing && proj != null) {
                 maxSteps = try {
                     val tracks = proj.tracks
@@ -238,7 +228,19 @@ class SanwolfAudioEngine(private val context: Context) {
                     lastMaxSteps
                 }
                 lastMaxSteps = maxSteps
-                loopBeats = (maxSteps / 4.0).coerceAtLeast(4.0)
+                // Arranger clips can sit anywhere on the 16-bar timeline: extend the loop to the
+                // bar after the last note (capped at 16 bars) so moved clips still play.
+                noteLoopBeats = try {
+                    var end = 0.0
+                    for (t in proj.tracks) for (n in t.notes) {
+                        val e = n.startBeat + n.lengthBeats
+                        if (e > end) end = e
+                    }
+                    (kotlin.math.ceil(end / 4.0) * 4.0).coerceAtMost(MAX_LOOP_BEATS)
+                } catch (e: Exception) {
+                    noteLoopBeats
+                }
+                loopBeats = maxOf((maxSteps / 4.0).coerceAtLeast(4.0), noteLoopBeats)
             }
             var offset = 0
             while (offset < BUFFER_SIZE) {
@@ -271,17 +273,7 @@ class SanwolfAudioEngine(private val context: Context) {
             var gonioCountdown = 0
 
             for (i in 0 until BUFFER_SIZE) {
-                var masterL = leftBlock[i] * preGain
-                var masterR = rightBlock[i] * preGain
-
-                if (masteringOn) {
-                    val mid = (masterL + masterR) * 0.5f
-                    val wideSide = (masterL - masterR) * 0.5f * width
-                    masterL = mid + wideSide
-                    masterR = mid - wideSide
-                }
-
-                lookAheadLimiter.process(masterL, masterR, limited)
+                masterBus.process(leftBlock[i], rightBlock[i], limited)
                 val sampleL = limited[0]
                 val sampleR = limited[1]
 
@@ -327,14 +319,21 @@ class SanwolfAudioEngine(private val context: Context) {
                 frequencyBands[b] = (frequencyBands[b] * 0.5f + (bandSum / bandSize * 10f) * 0.5f).coerceIn(0f, 1f)
             }
 
+            masterBus.takeGainReductionDb(grScratch)
+            compressorReductionDb = compressorReductionDb * 0.6f + grScratch[0] * 0.4f
+            limiterReductionDb = limiterReductionDb * 0.6f + grScratch[1] * 0.4f
+            val meanSquare = (sumLL + sumRR) / (2f * BUFFER_SIZE)
+            val rmsDb = if (meanSquare > 1e-9f) (10f * kotlin.math.log10(meanSquare)) else -90f
+            masterRmsDb = masterRmsDb * 0.8f + rmsDb * 0.2f
             currentPeakLeft = currentPeakLeft * 0.7f + maxLeft * 0.3f
             currentPeakRight = currentPeakRight * 0.7f + maxRight * 0.3f
 
             // A full block (longer than the 5 ms look-ahead) of silence in and out means the
             // limiter's delay line is empty; from then on idle blocks can skip all DSP.
-            val blockSilent = !anyVoiceOutput && maxLeft == 0f && maxRight == 0f
+            // (~-100 dBFS threshold: EQ filter tails decay towards, but never exactly reach, zero)
+            val blockSilent = !anyVoiceOutput && maxLeft < 1e-5f && maxRight < 1e-5f
             if (blockSilent && !outputSilent) {
-                lookAheadLimiter.reset()
+                masterBus.reset()
             }
             outputSilent = blockSilent
 
@@ -354,6 +353,9 @@ class SanwolfAudioEngine(private val context: Context) {
         currentPeakRight *= 0.7f
         phaseCorrelation = phaseCorrelation * 0.7f + 0.3f
         for (b in 0 until 8) frequencyBands[b] *= 0.5f
+        compressorReductionDb *= 0.6f
+        limiterReductionDb *= 0.6f
+        masterRmsDb = maxOf(-90f, masterRmsDb - 3f)
     }
 
     /**
@@ -409,7 +411,8 @@ class SanwolfAudioEngine(private val context: Context) {
             if (track.steps.getOrElse(effectiveStep) { false }) {
                 val vel = track.stepVelocities.getOrElse(effectiveStep) { 0.8f } * track.volume
                 if (track.type == TrackType.DRUM_MACHINE) {
-                    val drumKey = "${track.synthPresetName} ${track.name}"
+                    // The instrument decides the sound; the track name is just a (renameable) label
+                    val drumKey = track.synthPresetName.ifEmpty { track.name }
                     triggerDrumSound(drumKey, vel, track.pan)
                 } else {
                     triggerTrackNote(track, 60, 0.25f, vel)
@@ -417,7 +420,7 @@ class SanwolfAudioEngine(private val context: Context) {
             }
 
             for (note in track.notes) {
-                if (kotlin.math.abs(note.startBeat - (beat % 16.0)) < 0.125) {
+                if (kotlin.math.abs(note.startBeat - beat) < 0.125) {
                     var effectiveVolume = track.volume
                     var effectivePan = track.pan
                     var effectiveCutoff = track.filterCutoffHz
