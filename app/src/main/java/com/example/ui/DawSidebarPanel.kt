@@ -106,6 +106,9 @@ fun DawSidebarPanel(
     // Samples
     onPreviewFactory: (FactoryWavSample) -> Unit,
     onAddFactorySample: (FactoryWavSample) -> Unit,
+    onPreviewFactorySynthFallback: (com.example.audio.FactorySound) -> Unit,
+    onAddFactorySound: (com.example.audio.FactorySound) -> Unit,
+    onAddFactorySoundToSteps: (com.example.audio.FactorySound) -> Unit,
     onAddAudioFile: (String, Uri) -> Unit,
     onImportAudio: () -> Unit,
     onOpenSampleManager: () -> Unit,
@@ -247,6 +250,9 @@ fun DawSidebarPanel(
                                 refreshKey = projectListVersion + loadKey,
                                 onPreviewFactory = onPreviewFactory,
                                 onAddFactorySample = onAddFactorySample,
+                                onPreviewFactorySynthFallback = onPreviewFactorySynthFallback,
+                                onAddFactorySound = onAddFactorySound,
+                                onAddFactorySoundToSteps = onAddFactorySoundToSteps,
                                 onAddAudioFile = onAddAudioFile,
                                 onImportAudio = onImportAudio,
                                 onOpenFullSampleManager = onOpenSampleManager

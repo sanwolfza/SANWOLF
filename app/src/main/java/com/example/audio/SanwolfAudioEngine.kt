@@ -411,9 +411,8 @@ class SanwolfAudioEngine(private val context: Context) {
             if (track.steps.getOrElse(effectiveStep) { false }) {
                 val vel = track.stepVelocities.getOrElse(effectiveStep) { 0.8f } * track.volume
                 if (track.type == TrackType.DRUM_MACHINE) {
-                    // The instrument decides the sound; the track name is just a (renameable) label
-                    val drumKey = track.synthPresetName.ifEmpty { track.name }
-                    triggerDrumSound(drumKey, vel, track.pan)
+                    // The instrument (or a loaded sample) decides the sound; the name is just a label
+                    triggerDrumTrack(track, vel, track.pan)
                 } else {
                     triggerTrackNote(track, 60, 0.25f, vel)
                 }
@@ -473,8 +472,7 @@ class SanwolfAudioEngine(private val context: Context) {
 
         // Route drum machine tracks directly to percussion engine so they never play as synth notes
         if (track?.type == TrackType.DRUM_MACHINE) {
-            val drumKey = track.synthPresetName.ifEmpty { track.name }
-            triggerDrumSound(drumKey, finalVol, finalPan)
+            triggerDrumTrack(track, finalVol, finalPan)
             return
         }
 
@@ -545,6 +543,22 @@ class SanwolfAudioEngine(private val context: Context) {
         val drumVoice: ActiveVoice = InstrumentVoices.createDrumVoice(def.drumType.ifEmpty { def.id }, velocity, pan)
         voiceManager.addVoice(drumVoice)
     }
+
+    /**
+     * One hit on a drum (step-sequencer) track: its loaded one-shot sample when it has one
+     * ([TrackData.audioUri] decoded via [preloadDrumSample]), otherwise the synth drum voice.
+     */
+    fun triggerDrumTrack(track: TrackData, velocity: Float, pan: Float = track.pan) {
+        val pcm = PcmSampleCache.get(track.audioUri)
+        if (pcm != null) {
+            voiceManager.addVoice(SampleVoice(pcm, velocity, pan))
+        } else {
+            triggerDrumSound(track.synthPresetName.ifEmpty { track.name }, velocity, pan)
+        }
+    }
+
+    /** Decodes a drum track's sample so the audio thread can play it. Blocking: call off the main thread. */
+    fun preloadDrumSample(uri: String): Boolean = PcmSampleCache.load(uri) != null
 
     /** One metronome / count-in click. Safe to call from the UI thread. */
     fun playMetronomeClick(accent: Boolean) {

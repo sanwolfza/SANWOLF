@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -41,6 +43,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +62,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.audio.FactoryGenre
+import com.example.audio.FactoryLibrary
+import com.example.audio.FactorySound
 import com.example.audio.SanwolfAudioEngine
 import com.example.model.ProjectData
 import com.example.model.TrackData
@@ -71,7 +79,9 @@ import com.example.ui.theme.SanwolfPanelElevated
 import com.example.ui.theme.SanwolfTextMuted
 import com.example.ui.theme.SanwolfTextPrimary
 import com.example.ui.theme.SanwolfTextSecondary
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -104,6 +114,271 @@ object FactorySampleCatalog {
 
 @Composable
 fun FactorySampleManagerDialog(
+    audioEngine: SanwolfAudioEngine?,
+    onLoadSampleAsTrack: (FactoryWavSample) -> Unit,
+    onLoadSound: (FactorySound) -> Unit,
+    onLoadSoundToSteps: (FactorySound) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val sounds by produceState<List<FactorySound>?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) { FactoryLibrary.sounds(context.applicationContext) }
+    }
+    DisposableEffect(Unit) { onDispose { FactoryLibrary.stopPreview() } }
+    val loaded = sounds
+    if (loaded == null) return
+    if (loaded.isNotEmpty()) {
+        FactoryWavLibraryDialog(
+            sounds = loaded,
+            audioEngine = audioEngine,
+            onLoadSound = onLoadSound,
+            onLoadSoundToSteps = onLoadSoundToSteps,
+            onDismiss = onDismiss
+        )
+    } else {
+        // Fallback: bundled WAVs unreadable, offer the old synth placeholders.
+        PlaceholderSampleDialog(audioEngine, onLoadSampleAsTrack, onDismiss)
+    }
+}
+
+/** Genre filter value meaning "every genre". */
+private const val ALL_GENRES_KEY = "all"
+
+@Composable
+private fun FactoryWavLibraryDialog(
+    sounds: List<FactorySound>,
+    audioEngine: SanwolfAudioEngine?,
+    onLoadSound: (FactorySound) -> Unit,
+    onLoadSoundToSteps: (FactorySound) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var searchQuery by remember { mutableStateOf("") }
+    var genreKey by remember { mutableStateOf(FactoryGenre.AFRO_HOUSE.key) }
+    val previewingId = FactoryLibrary.previewingId.value
+    val genreOrder = remember { FactoryGenre.values().map { it.key } }
+
+    val q = searchQuery.trim()
+    val crossGenre = q.isNotEmpty() || genreKey == ALL_GENRES_KEY
+    val grouped: List<Pair<String, List<FactorySound>>> = remember(sounds, q, genreKey) {
+        sounds.filter { s ->
+            if (q.isNotEmpty()) s.displayName.contains(q, ignoreCase = true)
+            else genreKey == ALL_GENRES_KEY || s.genre == genreKey
+        }.sortedWith(
+            compareBy<FactorySound>(
+                { FactoryLibrary.categoryRank(it.category) },
+                { genreOrder.indexOf(it.genre).let { i -> if (i < 0) 99 else i } },
+                { it.displayName }
+            )
+        ).groupBy { it.category }.toList()
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.9f)
+                .testTag("factory_sample_dialog"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = SanwolfBlack),
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, SanwolfGold.copy(alpha = 0.8f))
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SanwolfGold.copy(alpha = 0.2f))
+                                .border(1.dp, SanwolfGold, RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = null, tint = SanwolfGold, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "FACTORY SAMPLES",
+                                color = SanwolfGold,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.8.sp
+                            )
+                            Text(
+                                text = "${sounds.size} one-shots and loops • House first, every genre",
+                                color = SanwolfTextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = SanwolfTextSecondary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search sounds (kick, log drum, rhodes…)", color = SanwolfTextMuted, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = SanwolfTextSecondary, modifier = Modifier.size(18.dp)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = SanwolfPanel,
+                        unfocusedContainerColor = SanwolfPanel,
+                        focusedBorderColor = SanwolfGold,
+                        unfocusedBorderColor = SanwolfPanelBorder,
+                        focusedTextColor = SanwolfTextPrimary,
+                        unfocusedTextColor = SanwolfTextPrimary
+                    ),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val chips = FactoryGenre.values().map { it.key to it.label } + (ALL_GENRES_KEY to "All genres")
+                    chips.forEach { (key, label) ->
+                        val isSelected = genreKey == key && q.isEmpty()
+                        Box(
+                            modifier = Modifier
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (isSelected) SanwolfGold.copy(alpha = 0.25f) else SanwolfPanel)
+                                .border(1.dp, if (isSelected) SanwolfGold else SanwolfPanelBorder, RoundedCornerShape(20.dp))
+                                .clickable { genreKey = key; searchQuery = "" }
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) SanwolfGold else SanwolfTextSecondary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (grouped.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text("No sounds match '$searchQuery'", color = SanwolfTextMuted, fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        grouped.forEach { (category, list) ->
+                            item(key = "header_$category") {
+                                Text(
+                                    text = category.uppercase(),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.8.sp,
+                                    color = SanwolfTextMuted,
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                                )
+                            }
+                            items(list, key = { it.id }) { sound ->
+                                FactorySoundCard(
+                                    sound = sound,
+                                    showGenre = crossGenre,
+                                    isPreviewing = previewingId == sound.id,
+                                    onPreview = {
+                                        if (previewingId == sound.id) {
+                                            FactoryLibrary.stopPreview()
+                                        } else if (!FactoryLibrary.preview(context, sound)) {
+                                            audioEngine?.triggerDrumSound(FactoryLibrary.placeholderSynthName(sound), 0.9f)
+                                        }
+                                    },
+                                    onLoad = {
+                                        FactoryLibrary.stopPreview()
+                                        onLoadSound(sound)
+                                        onDismiss()
+                                    },
+                                    onLoadToSteps = if (sound.isDrumOneShot) {
+                                        {
+                                            FactoryLibrary.stopPreview()
+                                            onLoadSoundToSteps(sound)
+                                            onDismiss()
+                                        }
+                                    } else null
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FactorySoundCard(
+    sound: FactorySound,
+    showGenre: Boolean,
+    isPreviewing: Boolean,
+    onPreview: () -> Unit,
+    onLoad: () -> Unit,
+    onLoadToSteps: (() -> Unit)?
+) {
+    val accent = Color(sound.color)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isPreviewing) accent.copy(alpha = 0.14f) else SanwolfPanel)
+            .border(1.dp, if (isPreviewing) accent else SanwolfPanelBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = onPreview, modifier = Modifier.size(48.dp)) {
+            Box(
+                modifier = Modifier.size(34.dp).clip(CircleShape).background(accent.copy(alpha = 0.25f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isPreviewing) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    contentDescription = if (isPreviewing) "Stop preview of ${sound.displayName}" else "Preview ${sound.displayName}",
+                    tint = accent,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
+            Text(sound.displayName, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = SanwolfTextPrimary)
+            Text(sound.detail(includeGenre = showGenre), fontSize = 12.sp, color = SanwolfTextSecondary)
+        }
+        if (onLoadToSteps != null) {
+            IconButton(onClick = onLoadToSteps, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.GridOn, contentDescription = "Add ${sound.displayName} as a step-sequencer drum track", tint = SanwolfCyan)
+            }
+        }
+        IconButton(onClick = onLoad, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Default.Add, contentDescription = "Add ${sound.displayName} as a new audio track", tint = SanwolfLime)
+        }
+    }
+}
+
+/** The original synth-placeholder browser, only shown if the bundled WAV library can't be read. */
+@Composable
+private fun PlaceholderSampleDialog(
     audioEngine: SanwolfAudioEngine?,
     onLoadSampleAsTrack: (FactoryWavSample) -> Unit,
     onDismiss: () -> Unit

@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -46,6 +47,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.audio.FactoryGenre
+import com.example.audio.FactoryLibrary
+import com.example.audio.FactorySound
 import com.example.audio.UserSampleRepository
 import com.example.model.ProjectData
 import com.example.model.TrackType
@@ -79,8 +83,14 @@ private data class BrowserItem(
     val detail: String,
     val color: Color,
     val factory: FactoryWavSample? = null,
-    val uri: Uri? = null
+    val uri: Uri? = null,
+    val sound: FactorySound? = null,
+    val category: String? = null
 )
+
+/** Genre filter value meaning "every genre". */
+private const val ALL_GENRES = "all"
+
 
 /**
  * SAMPLES section of the drawer, modeled on Cubasis' Media Bay: source tabs, search,
@@ -92,6 +102,9 @@ fun SampleBrowserSection(
     refreshKey: Int,
     onPreviewFactory: (FactoryWavSample) -> Unit,
     onAddFactorySample: (FactoryWavSample) -> Unit,
+    onPreviewFactorySynthFallback: (FactorySound) -> Unit,
+    onAddFactorySound: (FactorySound) -> Unit,
+    onAddFactorySoundToSteps: (FactorySound) -> Unit,
     onAddAudioFile: (name: String, uri: Uri) -> Unit,
     onImportAudio: () -> Unit,
     onOpenFullSampleManager: () -> Unit
@@ -102,6 +115,9 @@ fun SampleBrowserSection(
     var query by rememberSaveable { mutableStateOf("") }
     var previewingKey by remember { mutableStateOf<String?>(null) }
     var items by remember { mutableStateOf<List<BrowserItem>>(emptyList()) }
+    var genreKey by rememberSaveable { mutableStateOf(FactoryGenre.AFRO_HOUSE.key) }
+    // Real factory WAVs currently previewing (shared player, also used by the full manager dialog)
+    val factoryPreviewId = FactoryLibrary.previewingId.value
 
     // File preview player (recordings / user samples / imported). Released when the section leaves.
     val player = remember { arrayOfNulls<MediaPlayer>(1) }
@@ -109,9 +125,13 @@ fun SampleBrowserSection(
         player[0]?.let { mp -> runCatching { mp.stop() }; runCatching { mp.release() } }
         player[0] = null
         previewingKey = null
+        FactoryLibrary.stopPreview()
     }
     DisposableEffect(Unit) {
-        onDispose { player[0]?.let { runCatching { it.release() } }; player[0] = null }
+        onDispose {
+            player[0]?.let { runCatching { it.release() } }; player[0] = null
+            FactoryLibrary.stopPreview()
+        }
     }
 
     // Snapshot of the project's imported audio (read on the UI thread, which owns the project).
@@ -123,14 +143,31 @@ fun SampleBrowserSection(
         items = withContext(Dispatchers.IO) {
             runCatching {
                 when (source) {
-                    SampleSource.FACTORY -> FactorySampleCatalog.samples.map { s ->
-                        BrowserItem(
-                            key = "factory:${s.id}",
-                            name = s.name.removeSuffix(".wav"),
-                            detail = "${s.category} • ${s.genre}",
-                            color = Color(s.colorHex),
-                            factory = s
-                        )
+                    SampleSource.FACTORY -> {
+                        val sounds = FactoryLibrary.sounds(context.applicationContext)
+                        if (sounds.isNotEmpty()) {
+                            sounds.map { snd ->
+                                BrowserItem(
+                                    key = "wav:${snd.id}",
+                                    name = snd.displayName,
+                                    detail = snd.detail(),
+                                    color = Color(snd.color),
+                                    sound = snd,
+                                    category = snd.category
+                                )
+                            }
+                        } else {
+                            // Fallback: the bundled WAVs couldn't be read, show the synth placeholders.
+                            FactorySampleCatalog.samples.map { s ->
+                                BrowserItem(
+                                    key = "factory:${s.id}",
+                                    name = s.name.removeSuffix(".wav"),
+                                    detail = "${s.category} • ${s.genre} (synth)",
+                                    color = Color(s.colorHex),
+                                    factory = s
+                                )
+                            }
+                        }
                     }
                     SampleSource.MY_SAMPLES -> UserSampleRepository(context.applicationContext)
                         .getImportedSamples()
@@ -182,7 +219,24 @@ fun SampleBrowserSection(
         }
     }
 
-    val filtered = if (query.isBlank()) items else items.filter {
+    val isFactoryWav = source == SampleSource.FACTORY && items.any { it.sound != null }
+    val filtered = if (isFactoryWav) {
+        // Factory: genre chip filters; a search looks across every genre by sound name.
+        val q = query.trim()
+        items.filter { item ->
+            val snd = item.sound ?: return@filter false
+            if (q.isNotEmpty()) snd.displayName.contains(q, ignoreCase = true)
+            else genreKey == ALL_GENRES || snd.genre == genreKey
+        }.sortedWith(
+            compareBy<BrowserItem>(
+                { FactoryLibrary.categoryRank(it.category ?: "") },
+                { FactoryGenre.values().indexOfFirst { g -> g.key == it.sound?.genre }.let { i -> if (i < 0) 99 else i } },
+                { it.name }
+            )
+        ).map { item ->
+            if (q.isNotEmpty() || genreKey == ALL_GENRES) item.copy(detail = item.sound!!.detail(includeGenre = true)) else item
+        }
+    } else if (query.isBlank()) items else items.filter {
         it.name.contains(query, ignoreCase = true) || it.detail.contains(query, ignoreCase = true)
     }
 
@@ -213,6 +267,28 @@ fun SampleBrowserSection(
             }
         }
 
+        if (isFactoryWav) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FactoryGenre.values().forEach { g ->
+                    SidebarChip(
+                        label = g.label,
+                        selected = genreKey == g.key && query.isBlank(),
+                        onClick = { genreKey = g.key; query = "" }
+                    )
+                }
+                SidebarChip(
+                    label = "All genres",
+                    selected = genreKey == ALL_GENRES && query.isBlank(),
+                    onClick = { genreKey = ALL_GENRES; query = "" }
+                )
+            }
+        }
+
         SanwolfTextField(
             value = query,
             onValueChange = { query = it },
@@ -232,11 +308,20 @@ fun SampleBrowserSection(
                 }
             )
         } else {
+            var lastCategory: String? = null
             filtered.forEach { item ->
-                val isPreviewing = previewingKey == item.key
+                if (isFactoryWav && item.category != lastCategory) {
+                    lastCategory = item.category
+                    SidebarSectionHeader(title = (item.category ?: "").uppercase())
+                }
+                val snd = item.sound
+                val isPreviewing = if (snd != null) factoryPreviewId == snd.id else previewingKey == item.key
                 SampleRow(
                     item = item,
                     isPreviewing = isPreviewing,
+                    onAddToSteps = if (snd != null && snd.isDrumOneShot) {
+                        { stopPreview(); onAddFactorySoundToSteps(snd) }
+                    } else null,
                     onTogglePreview = {
                         if (isPreviewing) {
                             stopPreview()
@@ -244,7 +329,12 @@ fun SampleBrowserSection(
                             stopPreview()
                             val f = item.factory
                             val u = item.uri
-                            if (f != null) {
+                            if (snd != null) {
+                                if (!FactoryLibrary.preview(context, snd)) {
+                                    // Asset missing/unreadable: fall back to the synth stand-in.
+                                    onPreviewFactorySynthFallback(snd)
+                                }
+                            } else if (f != null) {
                                 previewingKey = item.key
                                 onPreviewFactory(f)
                             } else if (u != null) {
@@ -269,7 +359,11 @@ fun SampleBrowserSection(
                         stopPreview()
                         val f = item.factory
                         val u = item.uri
-                        if (f != null) onAddFactorySample(f) else if (u != null) onAddAudioFile(item.name, u)
+                        when {
+                            snd != null -> onAddFactorySound(snd)
+                            f != null -> onAddFactorySample(f)
+                            u != null -> onAddAudioFile(item.name, u)
+                        }
                     }
                 )
             }
@@ -288,7 +382,7 @@ fun SampleBrowserSection(
             label = "Full sample manager",
             icon = Icons.Default.LibraryMusic,
             tint = SanwolfGold,
-            subtitle = "Bigger browser with descriptions",
+            subtitle = "Bigger browser with every genre",
             onClick = onOpenFullSampleManager
         )
     }
@@ -299,7 +393,8 @@ private fun SampleRow(
     item: BrowserItem,
     isPreviewing: Boolean,
     onTogglePreview: () -> Unit,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onAddToSteps: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -349,6 +444,16 @@ private fun SampleRow(
             )
         }
         Spacer(modifier = Modifier.width(4.dp))
+        if (onAddToSteps != null) {
+            IconButton(
+                onClick = onAddToSteps,
+                modifier = Modifier
+                    .size(44.dp)
+                    .semantics { contentDescription = "Add ${item.name} as a step-sequencer drum track" }
+            ) {
+                Icon(Icons.Default.GridOn, contentDescription = null, tint = SanwolfCyan, modifier = Modifier.size(20.dp))
+            }
+        }
         IconButton(
             onClick = onAdd,
             modifier = Modifier

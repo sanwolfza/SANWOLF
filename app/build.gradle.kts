@@ -69,6 +69,8 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  // Factory sample WAVs stay uncompressed in the APK so previews can stream them via openFd().
+  androidResources { noCompress += "wav" }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true

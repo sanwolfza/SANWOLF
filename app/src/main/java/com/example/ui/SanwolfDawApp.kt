@@ -43,6 +43,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.audio.AudioFileManager
+import com.example.audio.FactoryLibrary
+import com.example.audio.FactorySound
 import com.example.audio.ProjectManager
 import android.content.pm.PackageManager
 import android.os.SystemClock
@@ -366,6 +368,78 @@ fun SanwolfDawApp() {
         projectVersion++
     }
 
+    /**
+     * Factory sound → new AUDIO track named exactly the sound's name, playing the real WAV.
+     * The asset is copied to app storage first so the track has a file:// URI that reloads after a restart.
+     */
+    val addFactorySoundTrack: (FactorySound) -> Unit = { sound ->
+        scope.launch {
+            val file = withContext(Dispatchers.IO) { FactoryLibrary.materialize(context.applicationContext, sound) }
+            if (file != null) {
+                val uri = Uri.fromFile(file)
+                val newTrack = TrackData(
+                    name = sound.displayName,
+                    type = TrackType.AUDIO_IMPORT,
+                    colorHex = sound.color,
+                    audioUri = uri.toString(),
+                    audioFileName = sound.displayName
+                )
+                project.tracks.add(newTrack)
+                audioEngine.addStemAudio(newTrack.id, uri)
+                audioEngine.updateStemMuteSolo(project)
+                selectedTrackIndex = project.tracks.size - 1
+                projectVersion++
+                Toast.makeText(context, "Added '${sound.displayName}'", Toast.LENGTH_SHORT).show()
+            } else {
+                // Fallback only: the WAV couldn't be read, keep the old synth placeholder behaviour.
+                addFactorySampleTrack(
+                    FactoryWavSample(
+                        id = sound.id,
+                        name = FactoryLibrary.placeholderSynthName(sound),
+                        category = sound.category,
+                        genre = sound.genreLabel,
+                        durationSec = sound.durationMs / 1000.0,
+                        description = "Synth stand-in for ${sound.displayName}",
+                        colorHex = sound.color
+                    )
+                )
+                project.tracks.lastOrNull()?.name = sound.displayName
+                projectVersion++
+            }
+        }
+    }
+
+    /** Factory drum/percussion one-shot → new step-sequencer drum track that plays the WAV on each step. */
+    val addFactorySoundStepTrack: (FactorySound) -> Unit = { sound ->
+        scope.launch {
+            val uriStr = withContext(Dispatchers.IO) {
+                val f = FactoryLibrary.materialize(context.applicationContext, sound) ?: return@withContext null
+                val u = Uri.fromFile(f).toString()
+                if (audioEngine.preloadDrumSample(u)) u else null
+            }
+            project.tracks.add(
+                TrackData(
+                    name = sound.displayName,
+                    type = TrackType.DRUM_MACHINE,
+                    colorHex = sound.color,
+                    // Synth stand-in is only used if the sample can't be decoded.
+                    synthPresetName = FactoryLibrary.placeholderSynthName(sound),
+                    synthPresetCategory = "Drum Kits",
+                    audioUri = uriStr,
+                    audioFileName = if (uriStr != null) sound.displayName else null,
+                    stepCount = 16
+                )
+            )
+            selectedTrackIndex = project.tracks.size - 1
+            projectVersion++
+            Toast.makeText(
+                context,
+                if (uriStr != null) "Added '${sound.displayName}' to the step sequencer" else "Couldn't load '${sound.displayName}', using a synth stand-in",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     /** Replaces the working project's contents with [loaded] (local file or cloud). */
     val applyLoadedProject: (ProjectData) -> Unit = { loaded ->
         // Snapshot first: a cloud cache hit can hand back this very ProjectData instance.
@@ -397,6 +471,13 @@ fun SanwolfDawApp() {
             if (t.type == TrackType.AUDIO_IMPORT && !uriStr.isNullOrBlank()) {
                 audioEngine.addStemAudio(t.id, Uri.parse(uriStr))
             }
+        }
+        // Drum tracks built from factory one-shots: decode their samples in the background.
+        val drumSampleUris = project.tracks
+            .filter { it.type == TrackType.DRUM_MACHINE && !it.audioUri.isNullOrBlank() }
+            .mapNotNull { it.audioUri }
+        if (drumSampleUris.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) { drumSampleUris.forEach { audioEngine.preloadDrumSample(it) } }
         }
         audioEngine.updateStemMuteSolo(project)
         audioEngine.currentProject = project
@@ -663,6 +744,11 @@ fun SanwolfDawApp() {
                         onOpenCloudSync = { showCloudSyncDialog = true },
                         onPreviewFactory = { sample -> audioEngine.triggerDrumSound(sample.name, 0.9f) },
                         onAddFactorySample = addFactorySampleTrack,
+                        onPreviewFactorySynthFallback = { sound ->
+                            audioEngine.triggerDrumSound(FactoryLibrary.placeholderSynthName(sound), 0.9f)
+                        },
+                        onAddFactorySound = addFactorySoundTrack,
+                        onAddFactorySoundToSteps = addFactorySoundStepTrack,
                         onAddAudioFile = addAudioFileTrack,
                         onImportAudio = { audioPickerLauncher.launch(arrayOf("audio/*")) },
                         onOpenSampleManager = { showFactorySampleManager = true },
@@ -869,7 +955,7 @@ fun SanwolfDawApp() {
                                         tr.steps[sIdx] = !tr.steps[sIdx]
                                         if (tr.steps[sIdx]) {
                                             if (tr.type == TrackType.DRUM_MACHINE) {
-                                                audioEngine.triggerDrumSound(tr.synthPresetName.ifEmpty { tr.name }, tr.volume, tr.pan)
+                                                audioEngine.triggerDrumTrack(tr, tr.volume, tr.pan)
                                             } else {
                                                 audioEngine.triggerTrackNote(tr, 60, 0.25f, tr.volume)
                                             }
@@ -888,7 +974,7 @@ fun SanwolfDawApp() {
                             onPreviewTrack = { tIdx ->
                                 project.tracks.getOrNull(tIdx)?.let { tr ->
                                     if (tr.type == TrackType.DRUM_MACHINE) {
-                                        audioEngine.triggerDrumSound(tr.synthPresetName.ifEmpty { tr.name }, tr.volume, tr.pan)
+                                        audioEngine.triggerDrumTrack(tr, tr.volume, tr.pan)
                                     } else {
                                         audioEngine.triggerTrackNote(tr, 60, 0.4f, tr.volume)
                                     }
@@ -1279,6 +1365,11 @@ fun SanwolfDawApp() {
                 audioEngine = audioEngine,
                 onPresetSelected = { preset ->
                     InstrumentCatalog.applyPresetToTrack(targetTrack, preset)
+                    // A new instrument replaces a drum track's factory one-shot sample.
+                    if (targetTrack.type == TrackType.DRUM_MACHINE) {
+                        targetTrack.audioUri = null
+                        targetTrack.audioFileName = null
+                    }
                     // The track takes the instrument's exact name (the user can rename it afterwards)
                     Toast.makeText(context, "Instrument: ${preset.name}", Toast.LENGTH_SHORT).show()
                     projectVersion++
@@ -1327,6 +1418,8 @@ fun SanwolfDawApp() {
             FactorySampleManagerDialog(
                 audioEngine = audioEngine,
                 onLoadSampleAsTrack = addFactorySampleTrack,
+                onLoadSound = addFactorySoundTrack,
+                onLoadSoundToSteps = addFactorySoundStepTrack,
                 onDismiss = { showFactorySampleManager = false }
             )
         }
