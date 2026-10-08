@@ -83,6 +83,12 @@ class SanwolfAudioEngine(private val context: Context) {
     @Volatile
     var currentProject: ProjectData? = null
 
+    // Metronome (quarter-note click while playing; accent on the first beat of each bar)
+    @Volatile
+    var metronomeEnabled = false
+    @Volatile
+    var metronomeVolume = 0.5f
+
     init {
         initAudioTrack()
     }
@@ -390,6 +396,10 @@ class SanwolfAudioEngine(private val context: Context) {
     }
 
     private fun triggerSequencerEvents(proj: ProjectData, step: Int, beat: Double) {
+        if (metronomeEnabled && step % 4 == 0) {
+            val beatsPerBar = proj.timeSignatureNumerator.coerceAtLeast(1)
+            playMetronomeClick(accent = (step / 4) % beatsPerBar == 0)
+        }
         val anySolo = proj.tracks.any { it.solo }
 
         for (track in proj.tracks) {
@@ -531,6 +541,19 @@ class SanwolfAudioEngine(private val context: Context) {
         val def = definition ?: InstrumentLibrary.getById(drumName)
         val drumVoice: ActiveVoice = InstrumentVoices.createDrumVoice(def.drumType.ifEmpty { def.id }, velocity, pan)
         voiceManager.addVoice(drumVoice)
+    }
+
+    /** One metronome / count-in click. Safe to call from the UI thread. */
+    fun playMetronomeClick(accent: Boolean) {
+        val vel = (metronomeVolume * if (accent) 1.0f else 0.7f).coerceIn(0f, 1f)
+        if (vel <= 0f || released) return
+        voiceManager.addVoice(InstrumentVoices.createDrumVoice(if (accent) "rim click" else "closed hihat", vel, 0f))
+    }
+
+    /** Releases every imported-audio stem player (used when a different project is loaded). */
+    fun clearStems() {
+        stemPlayers.values.forEach { runCatching { it.release() } }
+        stemPlayers.clear()
     }
 
     fun play() {
