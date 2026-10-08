@@ -52,6 +52,9 @@ class LookAheadLimiter(
     private val releaseCoeff = exp(-1.0 / (releaseMs * sampleRate / 1000.0)).toFloat()
     private val attackCoeffComplement = 1.0f - releaseCoeff
 
+    /** Current gain applied by the limiter (1.0 = no reduction). For metering. */
+    val gain: Float get() = currentGain
+
     /** Clears the delay line and gain state (equivalent to a long stretch of silence). */
     fun reset() {
         delayBufferL.fill(0f)
