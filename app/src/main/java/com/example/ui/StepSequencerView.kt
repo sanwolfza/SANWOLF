@@ -352,7 +352,7 @@ private fun SequencerTrackRow(
                     maxLines = 1
                 )
                 Text(
-                    text = "${track.synthPresetName.ifEmpty { track.name }} (${track.stepCount}s)",
+                    text = "${track.stepCount} steps",
                     fontSize = 8.5.sp,
                     fontFamily = FontFamily.Monospace,
                     color = SanwolfTextMuted,
