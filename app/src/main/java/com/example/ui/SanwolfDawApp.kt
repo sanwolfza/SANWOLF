@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -382,7 +384,10 @@ fun SanwolfDawApp() {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = SanwolfBlack
+        containerColor = SanwolfBlack,
+        // Immersive full screen: status/navigation bars are hidden, so only keep controls
+        // clear of a display cutout (notch / punch-hole) on the short edges.
+        contentWindowInsets = WindowInsets.displayCutout
     ) { innerPadding ->
         Column(
             modifier = Modifier
