@@ -38,7 +38,7 @@ object WavExporter {
                 if (track.steps.getOrElse(effectiveStep) { false }) {
                     val stepStartSample = (stepIdx * samplesPerStep).toInt()
                     val vel = track.stepVelocities.getOrElse(effectiveStep) { 0.8f } * track.volume
-                    renderDrumIntoBuffer(pcmData, stepStartSample, totalSamples, track.name, vel, track.pan, sampleRate)
+                    renderDrumIntoBuffer(pcmData, stepStartSample, totalSamples, track.synthPresetName.ifEmpty { track.name }, vel, track.pan, sampleRate)
                 }
             }
 
@@ -131,38 +131,16 @@ object WavExporter {
         }
     }
 
+    /** Runs the same master bus as live playback (see [MasterBusProcessor]) over the render. */
     private fun applyMasteringToBuffer(buffer: ShortArray, project: ProjectData) {
-        val m = project.masteringConfig
-        if (!m.enabled) return
-
-        val limiter = LookAheadLimiter(
-            sampleRate = 44100,
-            lookAheadMs = 5.0f,
-            releaseMs = 80.0f,
-            ceilingDb = m.limiterCeilingDb
-        )
-
-        val gain = Math.pow(10.0, (m.lowGainDb + m.highGainDb) / 40.0).toFloat() * 1.1f
-        val limitedSamples = FloatArray(2)
+        val bus = MasterBusProcessor(44100)
+        bus.configure(project.masteringConfig, project.masterVolume)
+        val out = FloatArray(2)
         val numFrames = buffer.size / 2
-
         for (i in 0 until numFrames) {
-            var sampleL = buffer[i * 2] / 32768f
-            var sampleR = buffer[i * 2 + 1] / 32768f
-
-            sampleL *= gain
-            sampleR *= gain
-
-            val mid = (sampleL + sampleR) * 0.5f
-            val side = (sampleL - sampleR) * 0.5f
-            val wideSide = side * m.stereoWidth
-            sampleL = mid + wideSide
-            sampleR = mid - wideSide
-
-            limiter.process(sampleL, sampleR, limitedSamples)
-
-            buffer[i * 2] = (limitedSamples[0] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-            buffer[i * 2 + 1] = (limitedSamples[1] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+            bus.process(buffer[i * 2] / 32768f, buffer[i * 2 + 1] / 32768f, out)
+            buffer[i * 2] = (out[0] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+            buffer[i * 2 + 1] = (out[1] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
         }
     }
 
