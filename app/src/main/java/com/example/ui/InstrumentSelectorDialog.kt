@@ -136,6 +136,15 @@ fun InstrumentSelectorDialog(
         }
     }
 
+    // Browse by section: category headings (Drums, Bass, Keys, Synths...) over each group.
+    // Headings are for browsing only; an added track is named after the instrument alone.
+    val groupedPresets = remember(filteredPresets) {
+        PICKER_SECTION_ORDER.mapNotNull { category ->
+            val inSection = filteredPresets.filter { it.category == category }
+            if (inSection.isEmpty()) null else category to inSection
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -208,7 +217,7 @@ fun InstrumentSelectorDialog(
                             }
                             if (currentTrack != null) {
                                 Text(
-                                    text = "Routing to Track: '${currentTrack.name}' (${currentTrack.synthPresetName})",
+                                    text = "Loading onto: ${currentTrack.name}",
                                     color = SanwolfTextSecondary,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
@@ -423,7 +432,11 @@ fun InstrumentSelectorDialog(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        items(filteredPresets, key = { it.id }) { preset ->
+                        groupedPresets.forEach { (sectionCategory, sectionPresets) ->
+                        item(key = "section_${sectionCategory.name}") {
+                            PickerSectionHeading(sectionCategory, sectionPresets.size)
+                        }
+                        items(sectionPresets, key = { it.id }) { preset ->
                             val isCurrentlyLoaded = currentTrack?.synthPresetName?.equals(preset.name, ignoreCase = true) == true
                             val isPreviewing = previewingPresetId == preset.id
 
@@ -453,6 +466,7 @@ fun InstrumentSelectorDialog(
                                 } else null
                             )
                         }
+                        }
                     }
                 } else {
                     // =========================================================
@@ -465,7 +479,11 @@ fun InstrumentSelectorDialog(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(filteredPresets, key = { it.id }) { preset ->
+                        groupedPresets.forEach { (sectionCategory, sectionPresets) ->
+                        item(key = "section_${sectionCategory.name}") {
+                            PickerSectionHeading(sectionCategory, sectionPresets.size)
+                        }
+                        items(sectionPresets, key = { it.id }) { preset ->
                             val isCurrentlyLoaded = currentTrack?.synthPresetName?.equals(preset.name, ignoreCase = true) == true
                             val isPreviewing = previewingPresetId == preset.id
 
@@ -494,6 +512,7 @@ fun InstrumentSelectorDialog(
                                     }
                                 } else null
                             )
+                        }
                         }
                     }
                 }
@@ -1131,5 +1150,49 @@ private fun playPresetPreview(audioEngine: SanwolfAudioEngine?, preset: Instrume
                 category = preset.category.displayName
             )
         }
+    }
+}
+
+/** Order of the browse sections in the instrument picker. */
+private val PICKER_SECTION_ORDER = listOf(
+    InstrumentCategory.DRUM_KIT,
+    InstrumentCategory.BASS_808,
+    InstrumentCategory.KEYS_PAD,
+    InstrumentCategory.SYNTH_LEAD,
+    InstrumentCategory.ORCHESTRAL_STRINGS,
+    InstrumentCategory.BRASS_WINDS,
+    InstrumentCategory.WORLD_PERCUSSION,
+    InstrumentCategory.ATMOSPHERE_FX
+)
+
+private fun pickerSectionTitle(category: InstrumentCategory): String = when (category) {
+    InstrumentCategory.DRUM_KIT -> "Drums"
+    InstrumentCategory.BASS_808 -> "Bass"
+    InstrumentCategory.KEYS_PAD -> "Keys"
+    InstrumentCategory.SYNTH_LEAD -> "Synths"
+    InstrumentCategory.ORCHESTRAL_STRINGS -> "Strings"
+    InstrumentCategory.BRASS_WINDS -> "Brass & Winds"
+    InstrumentCategory.WORLD_PERCUSSION -> "Percussion"
+    InstrumentCategory.ATMOSPHERE_FX -> "FX & Textures"
+}
+
+/** Section heading in the picker list (browse only; never copied onto the track). */
+@Composable
+private fun PickerSectionHeading(category: InstrumentCategory, count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 2.dp, start = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = pickerSectionTitle(category).uppercase(),
+            color = SanwolfGold,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.sp
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = "$count", color = SanwolfTextMuted, fontSize = 12.sp)
     }
 }
