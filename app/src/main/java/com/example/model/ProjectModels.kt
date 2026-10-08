@@ -257,7 +257,13 @@ data class ProjectData(
     var masteringConfig: MasteringConfig = MasteringConfig(),
     var collaborationRoomId: String? = null,
     var isCloudSynced: Boolean = false,
-    var lastSavedTimestamp: Long = System.currentTimeMillis()
+    var lastSavedTimestamp: Long = System.currentTimeMillis(),
+    // Song info / metadata (added later: every field has a default so older saved
+    // projects and undo snapshots without these keys still deserialize cleanly).
+    var artist: String = "",
+    var musicalKey: String = "",
+    var genre: String = "",
+    var songNotes: String = ""
 )
 
 enum class InstrumentCategory(val displayName: String) {
