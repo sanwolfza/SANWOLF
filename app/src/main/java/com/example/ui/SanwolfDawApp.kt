@@ -27,15 +27,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.content.pm.PackageManager
+import android.os.SystemClock
+import androidx.core.content.ContextCompat
+import com.example.studio.RecordingEngine
 import com.example.ai.ArrangementResult
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +83,7 @@ fun SanwolfDawApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val audioEngine = remember { SanwolfAudioEngine(context) }
+    val recordingEngine = remember { RecordingEngine(context.applicationContext) }
     val aiClient = remember { GeminiDawClient() }
     val firebaseManager = remember { FirebaseDawManager(context) }
     val undoRedoManager = remember { UndoRedoManager {} }
@@ -243,6 +249,7 @@ fun SanwolfDawApp() {
 
     DisposableEffect(Unit) {
         onDispose {
+            recordingEngine.release()
             audioEngine.release()
         }
     }
@@ -290,8 +297,64 @@ fun SanwolfDawApp() {
             )
             project.tracks.add(newTrack)
             audioEngine.addStemAudio(newTrack.id, uri)
+            projectVersion++
             Toast.makeText(context, "Imported '$trackName' into project!", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // --- Microphone Recording (real PCM -> WAV capture) ---
+    var recordingStartMs by remember { mutableLongStateOf(0L) }
+    var recordingElapsedMs by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(isRecordingAudio) {
+        while (isRecordingAudio) {
+            recordingElapsedMs = SystemClock.elapsedRealtime() - recordingStartMs
+            delay(200)
+        }
+    }
+
+    val startMicRecording: () -> Unit = {
+        recordingEngine.start()
+            .onSuccess {
+                recordingStartMs = SystemClock.elapsedRealtime()
+                recordingElapsedMs = 0L
+                isRecordingAudio = true
+                Toast.makeText(context, "Recording… tap Record again to stop", Toast.LENGTH_SHORT).show()
+            }
+            .onFailure { err ->
+                isRecordingAudio = false
+                Toast.makeText(context, "Couldn't start recording: ${err.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    val stopMicRecording: () -> Unit = {
+        isRecordingAudio = false
+        recordingEngine.stop()
+            .onSuccess { file ->
+                val takeNumber = project.tracks.count { it.name.startsWith("Mic Take") } + 1
+                val trackName = "Mic Take $takeNumber"
+                val fileUri = Uri.fromFile(file)
+                // Same path as an imported audio file: AUDIO_IMPORT track + stem player
+                val newTrack = TrackData(
+                    name = trackName,
+                    type = TrackType.AUDIO_IMPORT,
+                    colorHex = 0xFFFF2A6D,
+                    audioUri = fileUri.toString(),
+                    audioFileName = file.name
+                )
+                project.tracks.add(newTrack)
+                audioEngine.addStemAudio(newTrack.id, fileUri)
+                projectVersion++
+                val seconds = recordingEngine.durationMs(file) / 1000.0
+                Toast.makeText(
+                    context,
+                    "Saved ${String.format("%.1f", seconds)}s recording as '$trackName'",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .onFailure { err ->
+                Toast.makeText(context, "Recording failed: ${err.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            }
     }
 
     // Audio Record Permission Launcher
@@ -299,18 +362,23 @@ fun SanwolfDawApp() {
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            isRecordingAudio = !isRecordingAudio
-            if (isRecordingAudio) {
-                Toast.makeText(context, "Microphone live tracking active", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Microphone recorded stem added", Toast.LENGTH_SHORT).show()
-            }
+            startMicRecording()
         } else {
-            Toast.makeText(context, "Microphone permission required for vocal recording", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Microphone permission is needed to record. You can enable it in Settings.", Toast.LENGTH_LONG).show()
         }
     }
 
-    val selectedTrack = project.tracks.getOrNull(selectedTrackIndex) ?: project.tracks.first()
+    val onRecordPressed: () -> Unit = {
+        if (isRecordingAudio) {
+            stopMicRecording()
+        } else if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startMicRecording()
+        } else {
+            recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    val selectedTrack: TrackData? = project.tracks.getOrNull(selectedTrackIndex) ?: project.tracks.firstOrNull()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -329,7 +397,10 @@ fun SanwolfDawApp() {
                 peakLeft = audioEngine.currentPeakLeft,
                 peakRight = audioEngine.currentPeakRight,
                 isSidebarExpanded = isSidebarExpanded,
-                onToggleSidebar = { isSidebarExpanded = !isSidebarExpanded }
+                onToggleSidebar = { isSidebarExpanded = !isSidebarExpanded },
+                isRecording = isRecordingAudio,
+                recordingElapsedMs = recordingElapsedMs,
+                onRecordToggle = onRecordPressed
             )
 
             // --- Main Workspace Area: Sidebar & Content View ---
@@ -358,9 +429,7 @@ fun SanwolfDawApp() {
                             if (audioEngine.isPlaying) audioEngine.pause() else audioEngine.play()
                         },
                         onStop = { audioEngine.stop() },
-                        onRecordToggle = {
-                            recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                        },
+                        onRecordToggle = onRecordPressed,
                         onBpmChange = { project.bpm = it },
                         onMasterVolumeChange = {
                             project.masterVolume = it
@@ -773,9 +842,7 @@ fun SanwolfDawApp() {
                     if (audioEngine.isPlaying) audioEngine.pause() else audioEngine.play()
                 },
                 onStop = { audioEngine.stop() },
-                onRecordToggle = {
-                    recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                },
+                onRecordToggle = onRecordPressed,
                 onUndo = {
                     undoRedoManager.undo(project)
                     projectVersion++
