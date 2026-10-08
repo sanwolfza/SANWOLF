@@ -140,7 +140,7 @@ fun SanwolfDawApp() {
         // 3. Polyrhythmic HiHats (24 steps polyrhythm!)
         p.tracks.add(
             TrackData(
-                name = "Poly HiHats",
+                name = "Closed Hi-Hat",
                 type = TrackType.DRUM_MACHINE,
                 colorHex = 0xFF76FF03,
                 synthPresetName = "Closed Hi-Hat",
@@ -156,7 +156,7 @@ fun SanwolfDawApp() {
         // 4. Concert Grand Piano
         p.tracks.add(
             TrackData(
-                name = "Concert Grand Piano",
+                name = "Grand Piano",
                 type = TrackType.SYNTH,
                 colorHex = 0xFFFFD700,
                 synthPresetName = "Grand Piano",
@@ -276,7 +276,10 @@ fun SanwolfDawApp() {
     var sidebarTabName by rememberSaveable { mutableStateOf(SidebarTab.PROJECT.name) }
     val sidebarTab = runCatching { SidebarTab.valueOf(sidebarTabName) }.getOrDefault(SidebarTab.PROJECT)
     var isPianoKeyboardExpanded by remember { mutableStateOf(true) }
-    var isRightMixerExpanded by remember { mutableStateOf(false) }
+    // Right mastering hub: icon rail + collapsible panel (survives recreation like the left drawer)
+    var isRightMixerExpanded by rememberSaveable { mutableStateOf(false) }
+    var rightPanelTabName by rememberSaveable { mutableStateOf(RightPanelTab.MIXER.name) }
+    val rightPanelTab = runCatching { RightPanelTab.valueOf(rightPanelTabName) }.getOrDefault(RightPanelTab.MIXER)
 
     // Dialog Modals
     val sharedPrefs = remember { context.getSharedPreferences("sanwolf_daw_prefs", android.content.Context.MODE_PRIVATE) }
@@ -681,7 +684,11 @@ fun SanwolfDawApp() {
                         onOpenAiStudio = { showAiStudioDialog = true },
                         onOpenCoProducerArranger = { showCoProducerArranger = true },
                         onOpenAiAnalyzer = { showAiPatternAnalyzer = true },
-                        onOpenMastering = { showMasteringDialog = true },
+                        // Mastering now lives in the right-hand hub
+                        onOpenMastering = {
+                            rightPanelTabName = RightPanelTab.MASTER.name
+                            isRightMixerExpanded = true
+                        },
                         onOpenMixer = { showMasterMixer = true }
                     )
                 }
@@ -782,6 +789,7 @@ fun SanwolfDawApp() {
                                         )
                                     }
                                 }
+                                projectVersion++
                             },
                             onDeleteTrack = { idx ->
                                 if (project.tracks.size > 1 && idx in project.tracks.indices) {
@@ -789,6 +797,7 @@ fun SanwolfDawApp() {
                                     if (selectedTrackIndex >= project.tracks.size) {
                                         selectedTrackIndex = project.tracks.size - 1
                                     }
+                                    projectVersion++
                                 }
                             },
                             onTimelineScrub = { beat ->
@@ -837,7 +846,15 @@ fun SanwolfDawApp() {
                                     projectVersion++
                                 }
                             },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            // Tapping a notes clip opens the piano roll for that track directly
+                            onOpenPianoRoll = { idx ->
+                                if (idx in project.tracks.indices) {
+                                    selectedTrackIndex = idx
+                                    viewMode = DawViewMode.PIANO_ROLL
+                                }
+                            },
+                            onClipsChanged = { projectVersion++ }
                         )
                     }
 
@@ -852,7 +869,7 @@ fun SanwolfDawApp() {
                                         tr.steps[sIdx] = !tr.steps[sIdx]
                                         if (tr.steps[sIdx]) {
                                             if (tr.type == TrackType.DRUM_MACHINE) {
-                                                audioEngine.triggerDrumSound("${tr.synthPresetName} ${tr.name}", tr.volume, tr.pan)
+                                                audioEngine.triggerDrumSound(tr.synthPresetName.ifEmpty { tr.name }, tr.volume, tr.pan)
                                             } else {
                                                 audioEngine.triggerTrackNote(tr, 60, 0.25f, tr.volume)
                                             }
@@ -871,7 +888,7 @@ fun SanwolfDawApp() {
                             onPreviewTrack = { tIdx ->
                                 project.tracks.getOrNull(tIdx)?.let { tr ->
                                     if (tr.type == TrackType.DRUM_MACHINE) {
-                                        audioEngine.triggerDrumSound("${tr.synthPresetName} ${tr.name}", tr.volume, tr.pan)
+                                        audioEngine.triggerDrumSound(tr.synthPresetName.ifEmpty { tr.name }, tr.volume, tr.pan)
                                     } else {
                                         audioEngine.triggerTrackNote(tr, 60, 0.4f, tr.volume)
                                     }
@@ -1074,6 +1091,15 @@ fun SanwolfDawApp() {
                     audioEngine.updateStemMuteSolo(project)
                 }
                 projectVersion++
+            },
+            selectedTab = rightPanelTab,
+            onSelectTab = { rightPanelTabName = it.name },
+            onOpenExport = { showExportDialog = true },
+            onMasteringChanged = { projectVersion++ },
+            onMasterVolumeChange = {
+                project.masterVolume = it
+                audioEngine.masterVolume = it
+                audioEngine.updateStemMuteSolo(project)
             }
         )
     }
@@ -1253,7 +1279,8 @@ fun SanwolfDawApp() {
                 audioEngine = audioEngine,
                 onPresetSelected = { preset ->
                     InstrumentCatalog.applyPresetToTrack(targetTrack, preset)
-                    Toast.makeText(context, "Loaded '${preset.name}' onto '${targetTrack.name}'", Toast.LENGTH_SHORT).show()
+                    // The track takes the instrument's exact name (the user can rename it afterwards)
+                    Toast.makeText(context, "Instrument: ${preset.name}", Toast.LENGTH_SHORT).show()
                     projectVersion++
                     showInstrumentSelectorForTrack = null
                 },
