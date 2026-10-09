@@ -164,7 +164,11 @@ class FirebaseDawManager(private val context: Context) {
                 "tracks" to trackListMap,
                 "masteringConfig" to masteringMap,
                 "collaborationRoomId" to (project.collaborationRoomId ?: ""),
-                "lastSavedTimestamp" to project.lastSavedTimestamp
+                "lastSavedTimestamp" to project.lastSavedTimestamp,
+                "artist" to project.artist,
+                "musicalKey" to project.musicalKey,
+                "genre" to project.genre,
+                "songNotes" to project.songNotes
             )
 
             // Try saving to Firestore
@@ -266,7 +270,11 @@ class FirebaseDawManager(private val context: Context) {
                         masterVolume = masterVol,
                         collaborationRoomId = collabRoom,
                         isCloudSynced = true,
-                        lastSavedTimestamp = timestamp
+                        lastSavedTimestamp = timestamp,
+                        artist = docSnapshot.getString("artist") ?: "",
+                        musicalKey = docSnapshot.getString("musicalKey") ?: "",
+                        genre = docSnapshot.getString("genre") ?: "",
+                        songNotes = docSnapshot.getString("songNotes") ?: ""
                     )
 
                     // Parse tracks

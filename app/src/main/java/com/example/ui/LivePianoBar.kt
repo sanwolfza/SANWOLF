@@ -29,14 +29,22 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,13 +74,35 @@ fun LivePianoBar(
     onKeyTriggered: (pitch: Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var baseOctave by remember { mutableIntStateOf(3) }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("sanwolf_daw_prefs", android.content.Context.MODE_PRIVATE) }
+    val scope = rememberCoroutineScope()
+
+    var baseOctave by remember { mutableIntStateOf(prefs.getInt(PREF_PIANO_OCTAVE, 3).coerceIn(1, 6)) }
     var userPressedPitch by remember { mutableStateOf<Int?>(null) }
-    var barHeight by remember { mutableFloatStateOf(160f) }
-    var keyWidth by remember { mutableFloatStateOf(44f) }
+    // Size snaps to Collapsed / Compact / Medium / Large and is remembered across launches
+    val initialSize = PianoSize.values().getOrNull(prefs.getInt(PREF_PIANO_SIZE, PianoSize.MEDIUM.ordinal)) ?: PianoSize.MEDIUM
+    var pianoSize by remember { mutableStateOf(if (isExpanded) initialSize else PianoSize.COLLAPSED) }
+    var lastOpenSize by remember { mutableStateOf(if (initialSize == PianoSize.COLLAPSED) PianoSize.MEDIUM else initialSize) }
+    var octaveCount by remember { mutableIntStateOf(prefs.getInt(PREF_PIANO_OCTAVES, 2).coerceIn(1, 4)) }
+    val barHeight = remember { Animatable(pianoSize.heightDp) }
+
+    // Gesture handlers outlive a composition: read the latest parent state through these
+    val latestIsExpanded by rememberUpdatedState(isExpanded)
+    val latestOnToggleExpanded by rememberUpdatedState(onToggleExpanded)
+
+    fun snapPianoTo(size: PianoSize) {
+        pianoSize = size
+        if (size != PianoSize.COLLAPSED) lastOpenSize = size
+        prefs.edit().putInt(PREF_PIANO_SIZE, size.ordinal).apply()
+        scope.launch { barHeight.animateTo(size.heightDp, spring(stiffness = Spring.StiffnessMediumLow)) }
+        if ((size != PianoSize.COLLAPSED) != latestIsExpanded) latestOnToggleExpanded()
+    }
+
+    val keyboardVisible = pianoSize != PianoSize.COLLAPSED || barHeight.value > PianoSize.COLLAPSED.heightDp + 8f
 
     val startPitch = baseOctave * 12 + 12
-    val endPitch = startPitch + 24
+    val endPitch = startPitch + 12 * octaveCount
 
     val playingPitches = remember(currentBeat, isPlaying, selectedTrack) {
         if (!isPlaying || selectedTrack == null) emptySet()
@@ -86,28 +116,43 @@ fun LivePianoBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .height(barHeight.dp)
+            .height(barHeight.value.dp)
             .background(SanwolfBlack)
             .border(androidx.compose.foundation.BorderStroke(1.dp, SanwolfPanelBorder))
     ) {
-        // Draggable Resize Handle
+        // Resize handle: drag to any height, release to snap to the nearest size; tap cycles sizes
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(8.dp)
+                .height(16.dp)
                 .background(SanwolfPanelElevated)
                 .pointerInput(Unit) {
-                    detectVerticalDragGestures { _, dragAmount ->
-                        barHeight = (barHeight - dragAmount).coerceIn(100f, 320f)
-                    }
-                },
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            val next = (barHeight.value - dragAmount / density)
+                                .coerceIn(PianoSize.COLLAPSED.heightDp, PianoSize.LARGE.heightDp + 20f)
+                            scope.launch { barHeight.snapTo(next) }
+                        },
+                        onDragEnd = { snapPianoTo(PianoSize.nearest(barHeight.value)) },
+                        onDragCancel = { snapPianoTo(PianoSize.nearest(barHeight.value)) }
+                    )
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = {
+                        val order = PianoSize.values()
+                        snapPianoTo(order[(pianoSize.ordinal + 1) % order.size])
+                    })
+                }
+                .semantics { contentDescription = "Resize piano. Drag up or down, or tap to change size. Now ${pianoSize.label}." }
+                .testTag("piano_resize_handle"),
             contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    .width(40.dp)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(1.5.dp))
+                    .width(48.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
                     .background(SanwolfTextMuted)
             )
         }
@@ -116,7 +161,7 @@ fun LivePianoBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(34.dp)
+                .height(52.dp)
                 .background(SanwolfPanel)
                 .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -124,7 +169,8 @@ fun LivePianoBar(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f, fill = false)
             ) {
                 Icon(
                     imageVector = Icons.Default.MusicNote,
@@ -134,7 +180,7 @@ fun LivePianoBar(
                 )
                 Text(
                     text = "LIVE PIANO",
-                    fontSize = 10.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     color = SanwolfGold,
                     letterSpacing = 0.5.sp
@@ -148,19 +194,26 @@ fun LivePianoBar(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "${selectedTrack.name.uppercase()} (${selectedTrack.synthPresetName})",
-                            fontSize = 8.sp,
+                            text = selectedTrack.name,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = SanwolfTextPrimary
+                            color = SanwolfTextPrimary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 }
             }
 
-            // Octave & Transport Controls
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Octave & Transport Controls (scrolls horizontally on narrow screens)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .horizontalScroll(rememberScrollState())
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -170,18 +223,24 @@ fun LivePianoBar(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("OCT $baseOctave", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = SanwolfCyan)
+                    Text("OCT $baseOctave", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = SanwolfCyan)
                     IconButton(
-                        onClick = { if (baseOctave > 1) baseOctave-- },
-                        modifier = Modifier.size(20.dp)
+                        onClick = {
+                            if (baseOctave > 1) baseOctave--
+                            prefs.edit().putInt(PREF_PIANO_OCTAVE, baseOctave).apply()
+                        },
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.Remove, contentDescription = "Octave Down", tint = SanwolfTextSecondary, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Default.Remove, contentDescription = "Octave Down", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
                     }
                     IconButton(
-                        onClick = { if (baseOctave < 6) baseOctave++ },
-                        modifier = Modifier.size(20.dp)
+                        onClick = {
+                            if (baseOctave < 6) baseOctave++
+                            prefs.edit().putInt(PREF_PIANO_OCTAVE, baseOctave).apply()
+                        },
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Octave Up", tint = SanwolfTextSecondary, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Default.Add, contentDescription = "Octave Up", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
                     }
                 }
 
@@ -193,52 +252,58 @@ fun LivePianoBar(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("SIZE", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = SanwolfGold)
+                    Text("OCTAVES", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = SanwolfGold)
                     IconButton(
-                        onClick = { if (keyWidth > 25f) keyWidth -= 5f },
-                        modifier = Modifier.size(20.dp)
+                        onClick = {
+                            if (octaveCount > 1) {
+                                octaveCount--
+                                prefs.edit().putInt(PREF_PIANO_OCTAVES, octaveCount).apply()
+                            }
+                        },
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.Remove, contentDescription = "Shorter Keys", tint = SanwolfTextSecondary, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Default.Remove, contentDescription = "Fewer octaves (wider keys)", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
                     }
-                    Text("${keyWidth.toInt()}dp", fontSize = 8.sp, fontFamily = FontFamily.Monospace, color = SanwolfTextPrimary)
+                    Text("$octaveCount", fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = SanwolfTextPrimary)
                     IconButton(
-                        onClick = { if (keyWidth < 120f) keyWidth += 5f },
-                        modifier = Modifier.size(20.dp)
+                        onClick = {
+                            if (octaveCount < 4) {
+                                octaveCount++
+                                prefs.edit().putInt(PREF_PIANO_OCTAVES, octaveCount).apply()
+                            }
+                        },
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Wider Keys", tint = SanwolfTextSecondary, modifier = Modifier.size(12.dp))
+                        Icon(Icons.Default.Add, contentDescription = "More octaves (narrower keys)", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
                     }
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(SanwolfPanelElevated)
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    IconButton(
-                        onClick = onPlayToggle,
-                        modifier = Modifier.size(22.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = if (isPlaying) SanwolfLime else SanwolfTextPrimary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = onStop,
-                        modifier = Modifier.size(22.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Stop,
-                            contentDescription = "Stop",
-                            tint = SanwolfMagenta,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
+                    PianoBarTransportButton(
+                        icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        label = if (isPlaying) "Pause" else "Play",
+                        contentDescription = if (isPlaying) "Pause playback" else "Play",
+                        tint = if (isPlaying) SanwolfLime else SanwolfTextPrimary,
+                        onClick = onPlayToggle
+                    )
+                    PianoBarTransportButton(
+                        icon = Icons.Default.Stop,
+                        label = "Stop",
+                        contentDescription = "Stop playback",
+                        tint = SanwolfMagenta,
+                        onClick = onStop
+                    )
+                    PianoBarTransportButton(
+                        icon = Icons.Default.FiberManualRecord,
+                        label = if (isRecording) "Stop rec" else "Record",
+                        contentDescription = if (isRecording) "Stop recording" else "Record from microphone",
+                        tint = Color.Red,
+                        highlighted = isRecording,
+                        onClick = onRecordToggle
+                    )
                 }
 
                 Row(
@@ -250,18 +315,20 @@ fun LivePianoBar(
                             val nextBpm = if (bpm >= 150) 110 else bpm + 5
                             onBpmChange(nextBpm)
                         }
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                        .heightIn(min = 40.dp)
+                        .semantics { contentDescription = "Tempo $bpm BPM. Tap to raise by 5." }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "BPM:",
-                        fontSize = 8.sp,
+                        text = "BPM",
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = SanwolfTextMuted
+                        color = SanwolfTextSecondary
                     )
                     Text(
-                        text = "$bpm ⇗",
-                        fontSize = 9.sp,
+                        text = "$bpm +5",
+                        fontSize = 14.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
                         color = SanwolfGold
@@ -269,89 +336,190 @@ fun LivePianoBar(
                 }
 
                 IconButton(
-                    onClick = onToggleExpanded,
-                    modifier = Modifier.size(24.dp)
+                    onClick = { snapPianoTo(if (pianoSize == PianoSize.COLLAPSED) lastOpenSize else PianoSize.COLLAPSED) },
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
-                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                        contentDescription = "Toggle Piano",
+                        imageVector = if (pianoSize != PianoSize.COLLAPSED) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                        contentDescription = if (pianoSize != PianoSize.COLLAPSED) "Hide piano keyboard" else "Show piano keyboard",
                         tint = SanwolfTextPrimary
                     )
                 }
             }
         }
 
-        // --- Keyboard Body ---
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
-            modifier = Modifier.weight(1f)
-        ) {
+        // --- Keyboard Body: white keys share the width, black keys sit on top ---
+        if (keyboardVisible) {
             BoxWithConstraints(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
+                    .weight(1f)
                     .background(SanwolfBlack)
                     .padding(4.dp)
             ) {
-                val totalKeys = 25 // 2 octaves + 1 note
-                val whiteKeyWidth = maxWidth / 15 // ~15 white keys in 2 octaves
+                val whitePitches = (startPitch..endPitch).filter { !isBlackKey(it) }
+                val minWhite = 28.dp
+                val fitWhite = maxWidth / whitePitches.size
+                val whiteW = if (fitWhite < minWhite) minWhite else fitWhite
+                val blackW = whiteW * 0.6f
+                val keysWidth = whiteW * whitePitches.size
+                val showLabels = whiteW >= 30.dp
 
-                val scrollState = rememberScrollState()
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .horizontalScroll(scrollState),
-                    horizontalArrangement = Arrangement.spacedBy(1.dp)
+                        .fillMaxHeight()
+                        .horizontalScroll(rememberScrollState())
                 ) {
-                    for (i in 0 until totalKeys) {
-                        val pitch = startPitch + i
-                        val isBlack = isBlackKey(pitch)
-                        val isPlayingNote = playingPitches.contains(pitch) || userPressedPitch == pitch
-                        val keyColor = when {
-                            isPlayingNote -> SanwolfCyan
-                            isBlack -> Color(0xFF14161B)
-                            else -> Color(0xFFE2E8F0)
-                        }
-                        val textColor = if (isBlack) Color.White else Color.DarkGray
-
-                        Box(
-                            modifier = Modifier
-                                .width(keyWidth.dp)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(bottomStart = 3.dp, bottomEnd = 3.dp))
-                                .background(keyColor)
-                                .border(0.5.dp, SanwolfPanelBorder)
-                                .pointerInput(pitch) {
-                                    detectTapGestures(
-                                        onPress = {
-                                            userPressedPitch = pitch
-                                            audioEngine.triggerMidiNote(pitch, selectedTrack)
-                                            onKeyTriggered(pitch)
-                                            try {
-                                                awaitRelease()
-                                            } finally {
-                                                if (userPressedPitch == pitch) userPressedPitch = null
-                                            }
-                                        }
-                                    )
+                    Box(modifier = Modifier.width(keysWidth).fillMaxHeight()) {
+                        // White keys
+                        whitePitches.forEachIndexed { idx, pitch ->
+                            val lit = playingPitches.contains(pitch) || userPressedPitch == pitch
+                            PianoKey(
+                                pitch = pitch,
+                                isBlack = false,
+                                lit = lit,
+                                label = if (showLabels && pitch % 12 == 0) getNoteName(pitch) else null,
+                                modifier = Modifier
+                                    .offset(x = whiteW * idx)
+                                    .width(whiteW)
+                                    .fillMaxHeight(),
+                                onPress = { p ->
+                                    userPressedPitch = p
+                                    audioEngine.triggerMidiNote(p, selectedTrack)
+                                    onKeyTriggered(p)
                                 },
-                            contentAlignment = Alignment.BottomCenter
-                        ) {
-                            if (!isBlack && (pitch % 12 == 0)) {
-                                Text(
-                                    text = getNoteName(pitch),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = textColor,
-                                    modifier = Modifier.padding(bottom = 4.dp)
-                                )
+                                onRelease = { p -> if (userPressedPitch == p) userPressedPitch = null }
+                            )
+                        }
+                        // Black keys (drawn last so they win the touch)
+                        var whiteIndex = 0
+                        for (pitch in startPitch..endPitch) {
+                            if (!isBlackKey(pitch)) {
+                                whiteIndex++
+                                continue
                             }
+                            val lit = playingPitches.contains(pitch) || userPressedPitch == pitch
+                            PianoKey(
+                                pitch = pitch,
+                                isBlack = true,
+                                lit = lit,
+                                label = null,
+                                modifier = Modifier
+                                    .offset(x = whiteW * whiteIndex - blackW / 2)
+                                    .width(blackW)
+                                    .fillMaxHeight(0.62f),
+                                onPress = { p ->
+                                    userPressedPitch = p
+                                    audioEngine.triggerMidiNote(p, selectedTrack)
+                                    onKeyTriggered(p)
+                                },
+                                onRelease = { p -> if (userPressedPitch == p) userPressedPitch = null }
+                            )
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PianoKey(
+    pitch: Int,
+    isBlack: Boolean,
+    lit: Boolean,
+    label: String?,
+    modifier: Modifier,
+    onPress: (Int) -> Unit,
+    onRelease: (Int) -> Unit
+) {
+    val keyColor = when {
+        lit -> SanwolfCyan
+        isBlack -> Color(0xFF14161B)
+        else -> Color(0xFFE2E8F0)
+    }
+    Box(
+        modifier = modifier
+            .padding(horizontal = if (isBlack) 0.dp else 0.5.dp)
+            .clip(RoundedCornerShape(bottomStart = 3.dp, bottomEnd = 3.dp))
+            .background(keyColor)
+            .border(0.5.dp, SanwolfPanelBorder, RoundedCornerShape(bottomStart = 3.dp, bottomEnd = 3.dp))
+            .pointerInput(pitch) {
+                detectTapGestures(
+                    onPress = {
+                        onPress(pitch)
+                        try {
+                            awaitRelease()
+                        } finally {
+                            onRelease(pitch)
+                        }
+                    }
+                )
+            }
+            .semantics { contentDescription = getNoteName(pitch) },
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        if (label != null) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.DarkGray,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
+    }
+}
+
+/** Snap sizes for the piano dock (total height incl. handle + header). */
+private enum class PianoSize(val heightDp: Float, val label: String) {
+    COLLAPSED(68f, "collapsed"),
+    COMPACT(140f, "compact"),
+    MEDIUM(210f, "medium"),
+    LARGE(300f, "large");
+
+    companion object {
+        fun nearest(h: Float): PianoSize = values().minByOrNull { kotlin.math.abs(it.heightDp - h) } ?: MEDIUM
+    }
+}
+
+private const val PREF_PIANO_SIZE = "piano_dock_size"
+private const val PREF_PIANO_OCTAVES = "piano_dock_octaves"
+private const val PREF_PIANO_OCTAVE = "piano_dock_base_octave"
+
+@Composable
+private fun PianoBarTransportButton(
+    icon: ImageVector,
+    label: String,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit,
+    highlighted: Boolean = false
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (highlighted) tint.copy(alpha = 0.25f) else SanwolfPanelElevated)
+            .border(1.dp, if (highlighted) tint else SanwolfPanelBorder, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) { this.contentDescription = contentDescription }
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(20.dp)
+        )
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = SanwolfTextPrimary
+        )
     }
 }
 

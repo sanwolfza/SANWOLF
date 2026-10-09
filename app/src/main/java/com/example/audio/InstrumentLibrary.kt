@@ -2141,8 +2141,14 @@ object InstrumentLibrary {
     val definitions: List<InstrumentDefinition>
         get() = mutableDefinitions
 
+    // Resolved lookups (id/name/alias -> definition). getById is called from the real-time audio
+    // thread for every sequencer hit; the fuzzy fallback below allocates and scans the whole
+    // library, so results are memoised. Cleared whenever the library changes.
+    private val resolveCache = java.util.concurrent.ConcurrentHashMap<String, InstrumentDefinition>()
+
     fun registerUserSample(definition: InstrumentDefinition) {
         synchronized(mutableDefinitions) {
+            resolveCache.clear()
             val existingIdx = mutableDefinitions.indexOfFirst { it.id == definition.id }
             if (existingIdx >= 0) {
                 mutableDefinitions[existingIdx] = definition
@@ -2153,6 +2159,18 @@ object InstrumentLibrary {
     }
 
     fun getById(id: String): InstrumentDefinition {
+        resolveCache[id]?.let { return it }
+        // Resolve and memoise under the same lock registerUserSample uses, so a concurrent
+        // registration can never leave a stale entry behind.
+        synchronized(mutableDefinitions) {
+            resolveCache[id]?.let { return it }
+            val resolved = resolveById(id)
+            resolveCache[id] = resolved
+            return resolved
+        }
+    }
+
+    private fun resolveById(id: String): InstrumentDefinition {
         synchronized(mutableDefinitions) {
             // 1. Direct match on exact ID (e.g. "drum.kick.deep")
             mutableDefinitions.find { it.id == id }?.let { return it }

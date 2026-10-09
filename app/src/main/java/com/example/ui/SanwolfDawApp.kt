@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,15 +29,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.example.audio.AudioFileManager
+import com.example.audio.FactoryLibrary
+import com.example.audio.FactorySound
+import com.example.audio.ProjectManager
+import android.content.pm.PackageManager
+import android.os.SystemClock
+import androidx.core.content.ContextCompat
+import com.example.studio.RecordingEngine
 import com.example.ai.ArrangementResult
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +92,7 @@ fun SanwolfDawApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val audioEngine = remember { SanwolfAudioEngine(context) }
+    val recordingEngine = remember { RecordingEngine(context.applicationContext) }
     val aiClient = remember { GeminiDawClient() }
     val firebaseManager = remember { FirebaseDawManager(context) }
     val undoRedoManager = remember { UndoRedoManager {} }
@@ -127,7 +142,7 @@ fun SanwolfDawApp() {
         // 3. Polyrhythmic HiHats (24 steps polyrhythm!)
         p.tracks.add(
             TrackData(
-                name = "Poly HiHats",
+                name = "Closed Hi-Hat",
                 type = TrackType.DRUM_MACHINE,
                 colorHex = 0xFF76FF03,
                 synthPresetName = "Closed Hi-Hat",
@@ -143,7 +158,7 @@ fun SanwolfDawApp() {
         // 4. Concert Grand Piano
         p.tracks.add(
             TrackData(
-                name = "Concert Grand Piano",
+                name = "Grand Piano",
                 type = TrackType.SYNTH,
                 colorHex = 0xFFFFD700,
                 synthPresetName = "Grand Piano",
@@ -243,20 +258,30 @@ fun SanwolfDawApp() {
 
     DisposableEffect(Unit) {
         onDispose {
+            recordingEngine.release()
             audioEngine.release()
         }
     }
 
     // Navigation & View States
     var viewMode by remember { mutableStateOf(DawViewMode.ARRANGER) }
-    var isMetronomeEnabled by remember { mutableStateOf(false) }
-    var metronomeVolume by remember { mutableFloatStateOf(0.5f) }
+    val dawPrefs = remember { context.getSharedPreferences("sanwolf_daw_prefs", android.content.Context.MODE_PRIVATE) }
+    var isMetronomeEnabled by remember { mutableStateOf(dawPrefs.getBoolean("metronome_enabled", false)) }
+    var metronomeVolume by remember { mutableFloatStateOf(dawPrefs.getFloat("metronome_volume", 0.5f)) }
+    var isCountInEnabled by remember { mutableStateOf(dawPrefs.getBoolean("count_in_enabled", false)) }
+    var isCountingIn by remember { mutableStateOf(false) }
     var isFocusMode by remember { mutableStateOf(false) } // Disappearing windows immersion toggle
     var selectedTrackIndex by remember { mutableIntStateOf(0) }
     var isRecordingAudio by remember { mutableStateOf(false) }
-    var isSidebarExpanded by remember { mutableStateOf(true) }
+    // Left drawer: icon rail + collapsible panel (state survives recomposition / recreation)
+    var isSidebarExpanded by rememberSaveable { mutableStateOf(true) }
+    var sidebarTabName by rememberSaveable { mutableStateOf(SidebarTab.PROJECT.name) }
+    val sidebarTab = runCatching { SidebarTab.valueOf(sidebarTabName) }.getOrDefault(SidebarTab.PROJECT)
     var isPianoKeyboardExpanded by remember { mutableStateOf(true) }
-    var isRightMixerExpanded by remember { mutableStateOf(false) }
+    // Right mastering hub: icon rail + collapsible panel (survives recreation like the left drawer)
+    var isRightMixerExpanded by rememberSaveable { mutableStateOf(false) }
+    var rightPanelTabName by rememberSaveable { mutableStateOf(RightPanelTab.MIXER.name) }
+    val rightPanelTab = runCatching { RightPanelTab.valueOf(rightPanelTabName) }.getOrDefault(RightPanelTab.MIXER)
 
     // Dialog Modals
     val sharedPrefs = remember { context.getSharedPreferences("sanwolf_daw_prefs", android.content.Context.MODE_PRIVATE) }
@@ -275,22 +300,346 @@ fun SanwolfDawApp() {
     var showInstrumentBrowserForNewTrack by remember { mutableStateOf(false) }
     var showFactorySampleManager by remember { mutableStateOf(false) }
 
+    // --- Local project files (Open / Save / Save As) ---
+    val projectManager = remember { ProjectManager(context.applicationContext, firebaseManager) }
+    val audioFileManager = remember { AudioFileManager(context.applicationContext) }
+    // Not saveable on purpose: after process death the in-memory project is the default
+    // session again, so it must not silently point at (and overwrite) a saved file.
+    var currentProjectFileId by remember { mutableStateOf<String?>(null) }
+    var savedProjectJson by remember { mutableStateOf<String?>(null) }
+    var isProjectDirty by remember { mutableStateOf(false) }
+    var projectListVersion by remember { mutableIntStateOf(0) }
+    var projectLoadKey by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(isMetronomeEnabled, metronomeVolume, isCountInEnabled) {
+        audioEngine.metronomeEnabled = isMetronomeEnabled
+        audioEngine.metronomeVolume = metronomeVolume
+        dawPrefs.edit()
+            .putBoolean("metronome_enabled", isMetronomeEnabled)
+            .putFloat("metronome_volume", metronomeVolume)
+            .putBoolean("count_in_enabled", isCountInEnabled)
+            .apply()
+    }
+
+    // Unsaved-changes detection: compare the serialized project with the last saved snapshot.
+    // (Many edits mutate the project in place without a state change, so poll gently.)
+    LaunchedEffect(Unit) {
+        if (savedProjectJson == null) savedProjectJson = runCatching { projectManager.toJson(project) }.getOrNull()
+        while (true) {
+            delay(1500)
+            val now = runCatching { projectManager.toJson(project) }.getOrNull() ?: continue
+            val dirty = now != savedProjectJson
+            if (dirty != isProjectDirty) isProjectDirty = dirty
+        }
+    }
+
+    val markProjectClean: () -> Unit = {
+        savedProjectJson = runCatching { projectManager.toJson(project) }.getOrNull()
+        isProjectDirty = false
+    }
+
+    val addAudioFileTrack: (String, Uri) -> Unit = { name, uri ->
+        val newTrack = TrackData(
+            name = name,
+            type = TrackType.AUDIO_IMPORT,
+            colorHex = 0xFFFF2A6D,
+            audioUri = uri.toString(),
+            audioFileName = name
+        )
+        project.tracks.add(newTrack)
+        audioEngine.addStemAudio(newTrack.id, uri)
+        audioEngine.updateStemMuteSolo(project)
+        selectedTrackIndex = project.tracks.size - 1
+        projectVersion++
+        Toast.makeText(context, "Added '$name' as a new track", Toast.LENGTH_SHORT).show()
+    }
+
+    val addFactorySampleTrack: (FactoryWavSample) -> Unit = { sample ->
+        val newTrack = TrackData(
+            name = sample.name,
+            type = TrackType.AUDIO_IMPORT,
+            colorHex = sample.colorHex,
+            audioFileName = sample.name,
+            synthPresetName = sample.name
+        )
+        project.tracks.add(newTrack)
+        selectedTrackIndex = project.tracks.size - 1
+        Toast.makeText(context, "Loaded factory sample '${sample.name}' as new track!", Toast.LENGTH_SHORT).show()
+        projectVersion++
+    }
+
+    /**
+     * Factory sound → new AUDIO track named exactly the sound's name, playing the real WAV.
+     * The asset is copied to app storage first so the track has a file:// URI that reloads after a restart.
+     */
+    val addFactorySoundTrack: (FactorySound) -> Unit = { sound ->
+        scope.launch {
+            val file = withContext(Dispatchers.IO) { FactoryLibrary.materialize(context.applicationContext, sound) }
+            if (file != null) {
+                val uri = Uri.fromFile(file)
+                val newTrack = TrackData(
+                    name = sound.displayName,
+                    type = TrackType.AUDIO_IMPORT,
+                    colorHex = sound.color,
+                    audioUri = uri.toString(),
+                    audioFileName = sound.displayName
+                )
+                project.tracks.add(newTrack)
+                audioEngine.addStemAudio(newTrack.id, uri)
+                audioEngine.updateStemMuteSolo(project)
+                selectedTrackIndex = project.tracks.size - 1
+                projectVersion++
+                Toast.makeText(context, "Added '${sound.displayName}'", Toast.LENGTH_SHORT).show()
+            } else {
+                // Fallback only: the WAV couldn't be read, keep the old synth placeholder behaviour.
+                addFactorySampleTrack(
+                    FactoryWavSample(
+                        id = sound.id,
+                        name = FactoryLibrary.placeholderSynthName(sound),
+                        category = sound.category,
+                        genre = sound.genreLabel,
+                        durationSec = sound.durationMs / 1000.0,
+                        description = "Synth stand-in for ${sound.displayName}",
+                        colorHex = sound.color
+                    )
+                )
+                project.tracks.lastOrNull()?.name = sound.displayName
+                projectVersion++
+            }
+        }
+    }
+
+    /** Factory drum/percussion one-shot → new step-sequencer drum track that plays the WAV on each step. */
+    val addFactorySoundStepTrack: (FactorySound) -> Unit = { sound ->
+        scope.launch {
+            val uriStr = withContext(Dispatchers.IO) {
+                val f = FactoryLibrary.materialize(context.applicationContext, sound) ?: return@withContext null
+                val u = Uri.fromFile(f).toString()
+                if (audioEngine.preloadDrumSample(u)) u else null
+            }
+            project.tracks.add(
+                TrackData(
+                    name = sound.displayName,
+                    type = TrackType.DRUM_MACHINE,
+                    colorHex = sound.color,
+                    // Synth stand-in is only used if the sample can't be decoded.
+                    synthPresetName = FactoryLibrary.placeholderSynthName(sound),
+                    synthPresetCategory = "Drum Kits",
+                    audioUri = uriStr,
+                    audioFileName = if (uriStr != null) sound.displayName else null,
+                    stepCount = 16
+                )
+            )
+            selectedTrackIndex = project.tracks.size - 1
+            projectVersion++
+            Toast.makeText(
+                context,
+                if (uriStr != null) "Added '${sound.displayName}' to the step sequencer" else "Couldn't load '${sound.displayName}', using a synth stand-in",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    /** Replaces the working project's contents with [loaded] (local file or cloud). */
+    val applyLoadedProject: (ProjectData) -> Unit = { loaded ->
+        // Snapshot first: a cloud cache hit can hand back this very ProjectData instance.
+        val newTracks = loaded.tracks.toList()
+        val newMappings = loaded.midiMappings.toList()
+        audioEngine.stop()
+        audioEngine.clearStems()
+        project.tracks.clear()
+        project.tracks.addAll(newTracks)
+        project.title = loaded.title
+        project.bpm = loaded.bpm
+        project.swing = loaded.swing
+        project.timeSignatureNumerator = loaded.timeSignatureNumerator
+        project.timeSignatureDenominator = loaded.timeSignatureDenominator
+        project.masterVolume = loaded.masterVolume
+        project.masteringConfig = loaded.masteringConfig
+        project.midiMappings.clear()
+        project.midiMappings.addAll(newMappings)
+        project.collaborationRoomId = loaded.collaborationRoomId
+        project.isCloudSynced = loaded.isCloudSynced
+        project.lastSavedTimestamp = loaded.lastSavedTimestamp
+        project.artist = loaded.artist
+        project.musicalKey = loaded.musicalKey
+        project.genre = loaded.genre
+        project.songNotes = loaded.songNotes
+        audioEngine.masterVolume = project.masterVolume
+        project.tracks.forEach { t ->
+            val uriStr = t.audioUri
+            if (t.type == TrackType.AUDIO_IMPORT && !uriStr.isNullOrBlank()) {
+                audioEngine.addStemAudio(t.id, Uri.parse(uriStr))
+            }
+        }
+        // Drum tracks built from factory one-shots: decode their samples in the background.
+        val drumSampleUris = project.tracks
+            .filter { it.type == TrackType.DRUM_MACHINE && !it.audioUri.isNullOrBlank() }
+            .mapNotNull { it.audioUri }
+        if (drumSampleUris.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) { drumSampleUris.forEach { audioEngine.preloadDrumSample(it) } }
+        }
+        audioEngine.updateStemMuteSolo(project)
+        audioEngine.currentProject = project
+        selectedTrackIndex = 0
+        projectVersion++
+        projectLoadKey++
+    }
+
+    /** Writes the working project to [fileId] (serialized now, written in the background). */
+    val saveProjectToFile: (String, String) -> Unit = { fileId, successMessage ->
+        project.lastSavedTimestamp = System.currentTimeMillis()
+        val json = projectManager.toJson(project)
+        currentProjectFileId = fileId
+        savedProjectJson = json
+        isProjectDirty = false
+        scope.launch {
+            val res = withContext(Dispatchers.IO) { projectManager.writeJson(fileId, json) }
+            res.onSuccess {
+                Toast.makeText(context, successMessage, Toast.LENGTH_SHORT).show()
+            }.onFailure { err ->
+                isProjectDirty = true
+                Toast.makeText(context, "Save failed: ${err.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            }
+            projectListVersion++
+        }
+    }
+
+    val saveCurrentProject: () -> Unit = {
+        val id = currentProjectFileId ?: projectManager.newFileId()
+        saveProjectToFile(id, "Saved '${project.title}'")
+    }
+
+    val saveProjectAs: (String) -> Unit = { name ->
+        project.title = name
+        saveProjectToFile(projectManager.newFileId(), "Saved as '$name'")
+        projectLoadKey++
+    }
+
+    val openProjectFile: (String) -> Unit = { fileId ->
+        scope.launch {
+            val res = withContext(Dispatchers.IO) { projectManager.load(fileId) }
+            res.onSuccess { loaded ->
+                applyLoadedProject(loaded)
+                currentProjectFileId = fileId
+                markProjectClean()
+                Toast.makeText(context, "Opened '${loaded.title}'", Toast.LENGTH_SHORT).show()
+            }.onFailure { err ->
+                Toast.makeText(context, "Couldn't open project: ${err.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val createNewProject: (String) -> Unit = { name ->
+        applyLoadedProject(
+            ProjectData(
+                title = name,
+                bpm = 120,
+                tracks = mutableListOf(
+                    TrackData(name = "Kick 808", type = TrackType.DRUM_MACHINE, colorHex = 0xFFFF1744),
+                    TrackData(name = "Synth Lead", type = TrackType.SYNTH, colorHex = 0xFF00E5FF)
+                )
+            )
+        )
+        currentProjectFileId = null
+        markProjectClean()
+        Toast.makeText(context, "Created new project '$name'", Toast.LENGTH_SHORT).show()
+    }
+
     // Document Picker for Audio Import
     val audioPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             val trackName = uri.lastPathSegment?.substringAfterLast('/') ?: "Imported Stem"
-            val newTrack = TrackData(
-                name = trackName,
-                type = TrackType.AUDIO_IMPORT,
-                colorHex = 0xFFFF2A6D,
-                audioUri = uri.toString(),
-                audioFileName = trackName
-            )
-            project.tracks.add(newTrack)
-            audioEngine.addStemAudio(newTrack.id, uri)
-            Toast.makeText(context, "Imported '$trackName' into project!", Toast.LENGTH_SHORT).show()
+            scope.launch {
+                // Copy into app storage (AudioFileManager -> My samples) so saved projects keep
+                // working after the picker's temporary permission expires.
+                val localUri = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val def = audioFileManager.importUserSample(uri, trackName.substringBeforeLast('.'))
+                        val path = def.sample?.samplePath
+                        if (!path.isNullOrBlank() && java.io.File(path).length() > 0L) Uri.fromFile(java.io.File(path)) else null
+                    }.getOrNull()
+                }
+                addAudioFileTrack(trackName, localUri ?: uri)
+            }
+        }
+    }
+
+    // --- Microphone Recording (real PCM -> WAV capture) ---
+    var recordingStartMs by remember { mutableLongStateOf(0L) }
+    var recordingElapsedMs by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(isRecordingAudio) {
+        while (isRecordingAudio) {
+            recordingElapsedMs = SystemClock.elapsedRealtime() - recordingStartMs
+            delay(200)
+        }
+    }
+
+    val startMicRecording: () -> Unit = {
+        recordingEngine.start()
+            .onSuccess {
+                recordingStartMs = SystemClock.elapsedRealtime()
+                recordingElapsedMs = 0L
+                isRecordingAudio = true
+                Toast.makeText(context, "Recording… tap Record again to stop", Toast.LENGTH_SHORT).show()
+            }
+            .onFailure { err ->
+                isRecordingAudio = false
+                Toast.makeText(context, "Couldn't start recording: ${err.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    val stopMicRecording: () -> Unit = {
+        isRecordingAudio = false
+        recordingEngine.stop()
+            .onSuccess { file ->
+                val takeNumber = project.tracks.count { it.name.startsWith("Mic Take") } + 1
+                val trackName = "Mic Take $takeNumber"
+                val fileUri = Uri.fromFile(file)
+                // Same path as an imported audio file: AUDIO_IMPORT track + stem player
+                val newTrack = TrackData(
+                    name = trackName,
+                    type = TrackType.AUDIO_IMPORT,
+                    colorHex = 0xFFFF2A6D,
+                    audioUri = fileUri.toString(),
+                    audioFileName = file.name
+                )
+                project.tracks.add(newTrack)
+                audioEngine.addStemAudio(newTrack.id, fileUri)
+                projectVersion++
+                val seconds = recordingEngine.durationMs(file) / 1000.0
+                Toast.makeText(
+                    context,
+                    "Saved ${String.format("%.1f", seconds)}s recording as '$trackName'",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .onFailure { err ->
+                Toast.makeText(context, "Recording failed: ${err.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    // Optional one-bar count-in (Settings > Count-in) before the mic starts
+    val beginRecording: () -> Unit = {
+        if (isCountingIn) {
+            Toast.makeText(context, "Counting in…", Toast.LENGTH_SHORT).show()
+        } else if (isCountInEnabled) {
+            isCountingIn = true
+            scope.launch {
+                val beats = project.timeSignatureNumerator.coerceIn(1, 12)
+                val beatMs = 60_000L / project.bpm.coerceAtLeast(1)
+                for (i in 0 until beats) {
+                    audioEngine.playMetronomeClick(accent = i == 0)
+                    delay(beatMs)
+                }
+                isCountingIn = false
+                startMicRecording()
+            }
+        } else {
+            startMicRecording()
         }
     }
 
@@ -299,22 +648,30 @@ fun SanwolfDawApp() {
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            isRecordingAudio = !isRecordingAudio
-            if (isRecordingAudio) {
-                Toast.makeText(context, "Microphone live tracking active", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Microphone recorded stem added", Toast.LENGTH_SHORT).show()
-            }
+            beginRecording()
         } else {
-            Toast.makeText(context, "Microphone permission required for vocal recording", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Microphone permission is needed to record. You can enable it in Settings.", Toast.LENGTH_LONG).show()
         }
     }
 
-    val selectedTrack = project.tracks.getOrNull(selectedTrackIndex) ?: project.tracks.first()
+    val onRecordPressed: () -> Unit = {
+        if (isRecordingAudio) {
+            stopMicRecording()
+        } else if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            beginRecording()
+        } else {
+            recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    val selectedTrack: TrackData? = project.tracks.getOrNull(selectedTrackIndex) ?: project.tracks.firstOrNull()
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = SanwolfBlack
+        containerColor = SanwolfBlack,
+        // Immersive full screen: status/navigation bars are hidden, so only keep controls
+        // clear of a display cutout (notch / punch-hole) on the short edges.
+        contentWindowInsets = WindowInsets.displayCutout
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -329,7 +686,17 @@ fun SanwolfDawApp() {
                 peakLeft = audioEngine.currentPeakLeft,
                 peakRight = audioEngine.currentPeakRight,
                 isSidebarExpanded = isSidebarExpanded,
-                onToggleSidebar = { isSidebarExpanded = !isSidebarExpanded }
+                onToggleSidebar = {
+                    if (isFocusMode) {
+                        isFocusMode = false
+                        isSidebarExpanded = true
+                    } else {
+                        isSidebarExpanded = !isSidebarExpanded
+                    }
+                },
+                isRecording = isRecordingAudio,
+                recordingElapsedMs = recordingElapsedMs,
+                onRecordToggle = onRecordPressed
             )
 
             // --- Main Workspace Area: Sidebar & Content View ---
@@ -338,102 +705,77 @@ fun SanwolfDawApp() {
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                // Collapsible Sidebar Panel
+                // Left drawer: icon rail + collapsible project / samples / song / settings hub.
+                // Focus mode hides it completely; the toolbar menu button brings it back.
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isSidebarExpanded && !isFocusMode,
+                    visible = !isFocusMode,
                     enter = androidx.compose.animation.slideInHorizontally(initialOffsetX = { -it }) + androidx.compose.animation.fadeIn(),
                     exit = androidx.compose.animation.slideOutHorizontally(targetOffsetX = { -it }) + androidx.compose.animation.fadeOut()
                 ) {
                     DawSidebarPanel(
+                        expanded = isSidebarExpanded,
+                        selectedTab = sidebarTab,
+                        onSelectTab = { sidebarTabName = it.name },
+                        onExpandedChange = { isSidebarExpanded = it },
                         project = project,
-                        isPlaying = audioEngine.isPlaying,
-                        currentBeat = audioEngine.currentBeat,
-                        isRecording = isRecordingAudio,
-                        isFocusMode = isFocusMode,
+                        projectManager = projectManager,
+                        currentFileId = currentProjectFileId,
+                        isDirty = isProjectDirty,
+                        projectListVersion = projectListVersion + projectVersion,
+                        loadKey = projectLoadKey,
+                        onNewProject = createNewProject,
+                        onOpenProject = openProjectFile,
+                        onSaveProject = saveCurrentProject,
+                        onSaveProjectAs = saveProjectAs,
+                        onCurrentProjectRenamed = { newTitle ->
+                            project.title = newTitle
+                            // The file already carries the new title; keep the clean snapshot in sync.
+                            if (!isProjectDirty) markProjectClean()
+                            projectVersion++
+                            projectLoadKey++
+                        },
+                        onCurrentProjectDeleted = {
+                            currentProjectFileId = null
+                            isProjectDirty = true
+                            savedProjectJson = null
+                        },
+                        onOpenExport = { showExportDialog = true },
+                        onOpenCloudProjects = { showProjectManagerDialog = true },
+                        onOpenCloudSync = { showCloudSyncDialog = true },
+                        onPreviewFactory = { sample -> audioEngine.triggerDrumSound(sample.name, 0.9f) },
+                        onAddFactorySample = addFactorySampleTrack,
+                        onPreviewFactorySynthFallback = { sound ->
+                            audioEngine.triggerDrumSound(FactoryLibrary.placeholderSynthName(sound), 0.9f)
+                        },
+                        onAddFactorySound = addFactorySoundTrack,
+                        onAddFactorySoundToSteps = addFactorySoundStepTrack,
+                        onAddAudioFile = addAudioFileTrack,
+                        onImportAudio = { audioPickerLauncher.launch(arrayOf("audio/*")) },
+                        onOpenSampleManager = { showFactorySampleManager = true },
+                        onBpmChange = { project.bpm = it },
+                        onSongInfoChanged = { projectVersion++ },
                         isMetronomeEnabled = isMetronomeEnabled,
                         metronomeVolume = metronomeVolume,
-                        canUndo = undoRedoManager.canUndo(),
-                        canRedo = undoRedoManager.canRedo(),
-                        onPlayToggle = {
-                            if (audioEngine.isPlaying) audioEngine.pause() else audioEngine.play()
-                        },
-                        onStop = { audioEngine.stop() },
-                        onRecordToggle = {
-                            recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                        },
-                        onBpmChange = { project.bpm = it },
+                        isCountInEnabled = isCountInEnabled,
+                        onMetronomeToggle = { isMetronomeEnabled = !isMetronomeEnabled },
+                        onMetronomeVolumeChange = { metronomeVolume = it },
+                        onCountInToggle = { isCountInEnabled = !isCountInEnabled },
                         onMasterVolumeChange = {
                             project.masterVolume = it
                             audioEngine.masterVolume = it
+                            audioEngine.updateStemMuteSolo(project)
                         },
-                        onToggleFocusMode = { isFocusMode = !isFocusMode },
-                        onMetronomeToggle = { isMetronomeEnabled = !isMetronomeEnabled },
-                        onMetronomeVolumeChange = { metronomeVolume = it },
-                        onUndo = {
-                            undoRedoManager.undo(project)?.let { restored ->
-                                project.tracks.clear()
-                                project.tracks.addAll(restored.tracks)
-                                project.bpm = restored.bpm
-                                project.title = restored.title
-                                project.masterVolume = restored.masterVolume
-                                project.masteringConfig = restored.masteringConfig
-                                projectVersion++
-                            }
-                        },
-                        onRedo = {
-                            undoRedoManager.redo(project)?.let { restored ->
-                                project.tracks.clear()
-                                project.tracks.addAll(restored.tracks)
-                                project.bpm = restored.bpm
-                                project.title = restored.title
-                                project.masterVolume = restored.masterVolume
-                                project.masteringConfig = restored.masteringConfig
-                                projectVersion++
-                            }
-                        },
+                        onEnterFocusMode = { isFocusMode = true },
+                        onOpenTutorial = { showTutorialDialog = true },
                         onOpenAiStudio = { showAiStudioDialog = true },
                         onOpenCoProducerArranger = { showCoProducerArranger = true },
                         onOpenAiAnalyzer = { showAiPatternAnalyzer = true },
-                        onOpenMastering = { showMasteringDialog = true },
-                        onOpenMixer = { showMasterMixer = true },
-                        onOpenProjectManager = { showProjectManagerDialog = true },
-                        onNewProject = {
-                            val newTitle = "SESSION_${(1000..9999).random()}"
-                            val newProj = com.example.model.ProjectData(
-                                title = newTitle,
-                                bpm = 120,
-                                tracks = mutableStateListOf(
-                                    com.example.model.TrackData(name = "Kick 808", type = com.example.model.TrackType.DRUM_MACHINE, colorHex = 0xFFFF1744),
-                                    com.example.model.TrackData(name = "Synth Lead", type = com.example.model.TrackType.SYNTH, colorHex = 0xFF00E5FF)
-                                )
-                            )
-                            project.tracks.clear()
-                            project.tracks.addAll(newProj.tracks)
-                            project.title = newProj.title
-                            project.bpm = newProj.bpm
-                            project.isCloudSynced = false
-                            projectVersion++
-                            Toast.makeText(context, "Created new project '$newTitle'", Toast.LENGTH_SHORT).show()
+                        // Mastering now lives in the right-hand hub
+                        onOpenMastering = {
+                            rightPanelTabName = RightPanelTab.MASTER.name
+                            isRightMixerExpanded = true
                         },
-                        onSaveProject = {
-                            scope.launch {
-                                val res = firebaseManager.saveProjectToCloud(project)
-                                res.onSuccess {
-                                    project.isCloudSynced = true
-                                    projectVersion++
-                                    Toast.makeText(context, "Saved '${project.title}' to Cloud!", Toast.LENGTH_SHORT).show()
-                                }.onFailure {
-                                    project.isCloudSynced = true
-                                    projectVersion++
-                                    Toast.makeText(context, "Saved to local cache", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        onOpenCloudSync = { showCloudSyncDialog = true },
-                        onOpenExport = { showExportDialog = true },
-                        onOpenSampleManager = { showFactorySampleManager = true },
-                        onOpenTutorial = { showTutorialDialog = true },
-                        onCloseSidebar = { isSidebarExpanded = false }
+                        onOpenMixer = { showMasterMixer = true }
                     )
                 }
 
@@ -533,6 +875,7 @@ fun SanwolfDawApp() {
                                         )
                                     }
                                 }
+                                projectVersion++
                             },
                             onDeleteTrack = { idx ->
                                 if (project.tracks.size > 1 && idx in project.tracks.indices) {
@@ -540,6 +883,7 @@ fun SanwolfDawApp() {
                                     if (selectedTrackIndex >= project.tracks.size) {
                                         selectedTrackIndex = project.tracks.size - 1
                                     }
+                                    projectVersion++
                                 }
                             },
                             onTimelineScrub = { beat ->
@@ -588,7 +932,15 @@ fun SanwolfDawApp() {
                                     projectVersion++
                                 }
                             },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            // Tapping a notes clip opens the piano roll for that track directly
+                            onOpenPianoRoll = { idx ->
+                                if (idx in project.tracks.indices) {
+                                    selectedTrackIndex = idx
+                                    viewMode = DawViewMode.PIANO_ROLL
+                                }
+                            },
+                            onClipsChanged = { projectVersion++ }
                         )
                     }
 
@@ -603,7 +955,7 @@ fun SanwolfDawApp() {
                                         tr.steps[sIdx] = !tr.steps[sIdx]
                                         if (tr.steps[sIdx]) {
                                             if (tr.type == TrackType.DRUM_MACHINE) {
-                                                audioEngine.triggerDrumSound("${tr.synthPresetName} ${tr.name}", tr.volume, tr.pan)
+                                                audioEngine.triggerDrumTrack(tr, tr.volume, tr.pan)
                                             } else {
                                                 audioEngine.triggerTrackNote(tr, 60, 0.25f, tr.volume)
                                             }
@@ -622,7 +974,7 @@ fun SanwolfDawApp() {
                             onPreviewTrack = { tIdx ->
                                 project.tracks.getOrNull(tIdx)?.let { tr ->
                                     if (tr.type == TrackType.DRUM_MACHINE) {
-                                        audioEngine.triggerDrumSound("${tr.synthPresetName} ${tr.name}", tr.volume, tr.pan)
+                                        audioEngine.triggerDrumTrack(tr, tr.volume, tr.pan)
                                     } else {
                                         audioEngine.triggerTrackNote(tr, 60, 0.4f, tr.volume)
                                     }
@@ -773,9 +1125,7 @@ fun SanwolfDawApp() {
                     if (audioEngine.isPlaying) audioEngine.pause() else audioEngine.play()
                 },
                 onStop = { audioEngine.stop() },
-                onRecordToggle = {
-                    recordPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                },
+                onRecordToggle = onRecordPressed,
                 onUndo = {
                     undoRedoManager.undo(project)
                     projectVersion++
@@ -827,6 +1177,15 @@ fun SanwolfDawApp() {
                     audioEngine.updateStemMuteSolo(project)
                 }
                 projectVersion++
+            },
+            selectedTab = rightPanelTab,
+            onSelectTab = { rightPanelTabName = it.name },
+            onOpenExport = { showExportDialog = true },
+            onMasteringChanged = { projectVersion++ },
+            onMasterVolumeChange = {
+                project.masterVolume = it
+                audioEngine.masterVolume = it
+                audioEngine.updateStemMuteSolo(project)
             }
         )
     }
@@ -977,15 +1336,10 @@ fun SanwolfDawApp() {
                 currentProject = project,
                 firebaseManager = firebaseManager,
                 onLoadProject = { loadedProj ->
-                    project.tracks.clear()
-                    project.tracks.addAll(loadedProj.tracks)
-                    project.bpm = loadedProj.bpm
-                    project.title = loadedProj.title
-                    project.masterVolume = loadedProj.masterVolume
-                    project.masteringConfig = loadedProj.masteringConfig
-                    project.isCloudSynced = loadedProj.isCloudSynced
-                    projectVersion++
-                    audioEngine.updateStemMuteSolo(project)
+                    applyLoadedProject(loadedProj)
+                    // Loaded from the cloud: not tied to a local file until saved.
+                    currentProjectFileId = null
+                    markProjectClean()
                     showProjectManagerDialog = false
                     Toast.makeText(context, "Loaded project '${loadedProj.title}'", Toast.LENGTH_SHORT).show()
                 },
@@ -1011,7 +1365,13 @@ fun SanwolfDawApp() {
                 audioEngine = audioEngine,
                 onPresetSelected = { preset ->
                     InstrumentCatalog.applyPresetToTrack(targetTrack, preset)
-                    Toast.makeText(context, "Loaded '${preset.name}' onto '${targetTrack.name}'", Toast.LENGTH_SHORT).show()
+                    // A new instrument replaces a drum track's factory one-shot sample.
+                    if (targetTrack.type == TrackType.DRUM_MACHINE) {
+                        targetTrack.audioUri = null
+                        targetTrack.audioFileName = null
+                    }
+                    // The track takes the instrument's exact name (the user can rename it afterwards)
+                    Toast.makeText(context, "Instrument: ${preset.name}", Toast.LENGTH_SHORT).show()
                     projectVersion++
                     showInstrumentSelectorForTrack = null
                 },
@@ -1057,19 +1417,9 @@ fun SanwolfDawApp() {
         if (showFactorySampleManager) {
             FactorySampleManagerDialog(
                 audioEngine = audioEngine,
-                onLoadSampleAsTrack = { sample ->
-                    val newTrack = TrackData(
-                        name = sample.name,
-                        type = TrackType.AUDIO_IMPORT,
-                        colorHex = sample.colorHex,
-                        audioFileName = sample.name,
-                        synthPresetName = sample.name
-                    )
-                    project.tracks.add(newTrack)
-                    selectedTrackIndex = project.tracks.size - 1
-                    Toast.makeText(context, "Loaded factory sample '${sample.name}' as new track!", Toast.LENGTH_SHORT).show()
-                    projectVersion++
-                },
+                onLoadSampleAsTrack = addFactorySampleTrack,
+                onLoadSound = addFactorySoundTrack,
+                onLoadSoundToSteps = addFactorySoundStepTrack,
                 onDismiss = { showFactorySampleManager = false }
             )
         }

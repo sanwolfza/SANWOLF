@@ -2,42 +2,54 @@ package com.example.audio
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.os.SystemClock
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Process
+import android.os.SystemClock
+import android.util.Log
 import com.example.model.ProjectData
 import com.example.model.SynthWaveform
 import com.example.model.TrackData
 import com.example.model.TrackType
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.PI
-import kotlin.math.exp
+import kotlin.math.abs
 import kotlin.math.pow
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
  * Enterprise Audio Engine utilizing dedicated VoiceManager, individual InstrumentVoice classes
  * (Piano, Bass, Lead, Pad, Organ, Pluck), and independent DrumVoice engines.
+ *
+ * Rendering runs on a dedicated real-time thread (THREAD_PRIORITY_URGENT_AUDIO) that pushes
+ * 16-bit stereo PCM into a streaming AudioTrack. Everything inside the per-sample loops is
+ * allocation-free; per-block parameters (volume, mastering gains, limiter ceiling, tempo)
+ * are read once per block.
  */
 class SanwolfAudioEngine(private val context: Context) {
 
     companion object {
+        private const val TAG = "SanwolfAudioEngine"
+        /** Engine/synthesis rate. All voices (and the WAV exporter) are built for this rate. */
         const val SAMPLE_RATE = 44100
+        /** Frames rendered and written per AudioTrack.write(). */
         const val BUFFER_SIZE = 1024
         const val NUM_CHANNELS = 2 // Stereo
+        /** Sequencer resolution inside a block (frames). Keeps step timing within ~3 ms. */
+        private const val SEQ_CHUNK = 128
+        private const val BYTES_PER_FRAME = NUM_CHANNELS * 2 // 16-bit PCM
+        /** Longest song loop (beats): matches the arranger's 16-bar timeline. */
+        const val MAX_LOOP_BEATS = 64.0
     }
 
     private var audioTrack: AudioTrack? = null
-    private var synthJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.Default)
+    private var audioThread: Thread? = null
+    @Volatile
+    private var running = false
+    @Volatile
+    private var released = false
     private val lastTriggerTimeMap = ConcurrentHashMap<Int, Long>()
 
     @Volatile
@@ -51,6 +63,7 @@ class SanwolfAudioEngine(private val context: Context) {
     var currentStep = 0
 
     // Master volume and mixing bus
+    @Volatile
     var masterVolume = 0.85f
     @Volatile
     var currentPeakLeft = 0f
@@ -62,164 +75,333 @@ class SanwolfAudioEngine(private val context: Context) {
     val goniometerPoints = FloatArray(128)
 
     // Master limiter and VoiceManager
-    private val lookAheadLimiter = LookAheadLimiter(SAMPLE_RATE, 5.0f, 80.0f, -0.3f)
+    // Master bus (EQ, glue compressor, width, drive, limiter); shared with WAV export
+    private val masterBus = MasterBusProcessor(SAMPLE_RATE)
+
+    /** Master-bus meters for the mastering panel (updated once per audio block). */
+    @Volatile
+    var compressorReductionDb = 0f
+    @Volatile
+    var limiterReductionDb = 0f
+    /** Short-term RMS of the master output in dBFS (an RMS reading, not LUFS). */
+    @Volatile
+    var masterRmsDb = -90f
     val voiceManager = VoiceManager()
 
     // Media players for imported audio stem playback
     private val stemPlayers = ConcurrentHashMap<String, MediaPlayer>()
 
     // Current project reference
+    @Volatile
     var currentProject: ProjectData? = null
+
+    // Metronome (quarter-note click while playing; accent on the first beat of each bar)
+    @Volatile
+    var metronomeEnabled = false
+    @Volatile
+    var metronomeVolume = 0.5f
 
     init {
         initAudioTrack()
     }
 
+    private fun createAudioTrack(): AudioTrack {
+        val minBufferSize = AudioTrack.getMinBufferSize(
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_OUT_STEREO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        // At least 4 render blocks (~93 ms) and at least 2x the device minimum, so a GC pause or
+        // a heavy block does not starve the mixer.
+        val bufferSize = maxOf(
+            if (minBufferSize > 0) minBufferSize * 2 else 0,
+            BUFFER_SIZE * BYTES_PER_FRAME * 4
+        )
+
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .build()
+            )
+            .setBufferSizeInBytes(bufferSize)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+
+        if (track.state != AudioTrack.STATE_INITIALIZED) {
+            track.release()
+            throw IllegalStateException("AudioTrack failed to initialise")
+        }
+        val nativeRate = runCatching { AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC) }.getOrDefault(-1)
+        Log.i(
+            TAG,
+            "AudioTrack ready: engine=${SAMPLE_RATE}Hz track=${track.sampleRate}Hz device=${nativeRate}Hz " +
+                "minBuf=${minBufferSize}B buf=${bufferSize}B (${bufferSize / BYTES_PER_FRAME} frames)"
+        )
+        track.play()
+        return track
+    }
+
     private fun initAudioTrack() {
         try {
-            val minBufferSize = AudioTrack.getMinBufferSize(
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_OUT_STEREO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-            val bufferSize = maxOf(minBufferSize, BUFFER_SIZE * NUM_CHANNELS * 2 * 4)
-
-            audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setSampleRate(SAMPLE_RATE)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .build()
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-
-            audioTrack?.play()
-            startAudioProcessingLoop()
+            audioTrack = createAudioTrack()
+            startAudioThread()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Audio init failed", e)
         }
     }
 
-    private fun startAudioProcessingLoop() {
-        synthJob?.cancel()
-        synthJob = scope.launch {
-            val audioBuffer = ShortArray(BUFFER_SIZE * NUM_CHANNELS)
-            val leftBlock = FloatArray(BUFFER_SIZE)
-            val rightBlock = FloatArray(BUFFER_SIZE)
+    private fun startAudioThread() {
+        if (running) return
+        running = true
+        audioThread = Thread({ audioLoop() }, "SanwolfAudio").apply {
+            priority = Thread.MAX_PRIORITY
+            start()
+        }
+    }
 
-            while (isActive) {
-                val proj = currentProject
-                val bpm = proj?.bpm ?: 120
-                val samplesPerBeat = (SAMPLE_RATE * 60.0) / bpm
+    private fun audioLoop() {
+        try {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not raise audio thread priority", e)
+        }
 
-                // Sequencer advance logic
-                if (isPlaying && proj != null) {
+        val audioBuffer = ShortArray(BUFFER_SIZE * NUM_CHANNELS)
+        val silence = ShortArray(BUFFER_SIZE * NUM_CHANNELS)
+        val leftBlock = FloatArray(BUFFER_SIZE)
+        val rightBlock = FloatArray(BUFFER_SIZE)
+        val limited = FloatArray(2)
+        val gonioStride = BUFFER_SIZE / 64
+        val bandSize = BUFFER_SIZE / 8
+
+        val grScratch = FloatArray(2)
+
+        // Once the mix has been silent long enough to flush the limiter, idle blocks skip DSP
+        var outputSilent = false
+        var lastMaxSteps = 32
+
+        while (running) {
+            val track = audioTrack ?: break
+            try {
+            val proj = currentProject
+            val playing = isPlaying && proj != null
+
+            if (!playing && outputSilent && voiceManager.isIdle()) {
+                // Nothing is sounding: hand the device silence and let the meters fall
+                decayMeters()
+                writeFully(track, silence)
+                continue
+            }
+
+            // ---- Per-block parameters (hoisted out of the sample loop) ----
+            val bpm = (proj?.bpm ?: 120).coerceAtLeast(1)
+            val samplesPerBeat = (SAMPLE_RATE * 60.0) / bpm
+            val vol = (proj?.masterVolume ?: masterVolume).coerceIn(0f, 1.5f)
+            masterBus.configure(proj?.masteringConfig, vol)
+
+            // ---- Sequencer + voice rendering, in small chunks for tight step timing ----
+            var anyVoiceOutput = false
+            var maxSteps = 32
+            var loopBeats = 8.0
+            var noteLoopBeats = 0.0
+            if (playing && proj != null) {
+                maxSteps = try {
+                    val tracks = proj.tracks
+                    if (tracks.isEmpty()) {
+                        32
+                    } else {
+                        var m = Int.MIN_VALUE
+                        for (t in tracks) if (t.stepCount > m) m = t.stepCount
+                        m.coerceIn(16, 64)
+                    }
+                } catch (e: Exception) {
+                    // Track list being edited concurrently on the UI thread: keep last value
+                    lastMaxSteps
+                }
+                lastMaxSteps = maxSteps
+                // Arranger clips can sit anywhere on the 16-bar timeline: extend the loop to the
+                // bar after the last note (capped at 16 bars) so moved clips still play.
+                noteLoopBeats = try {
+                    var end = 0.0
+                    for (t in proj.tracks) for (n in t.notes) {
+                        val e = n.startBeat + n.lengthBeats
+                        if (e > end) end = e
+                    }
+                    (kotlin.math.ceil(end / 4.0) * 4.0).coerceAtMost(MAX_LOOP_BEATS)
+                } catch (e: Exception) {
+                    noteLoopBeats
+                }
+                loopBeats = maxOf((maxSteps / 4.0).coerceAtLeast(4.0), noteLoopBeats)
+            }
+            var offset = 0
+            while (offset < BUFFER_SIZE) {
+                val n = minOf(SEQ_CHUNK, BUFFER_SIZE - offset)
+                if (playing && proj != null && isPlaying) {
                     val prevStep = currentStep
-                    val maxSteps = proj.tracks.maxOfOrNull { it.stepCount }?.coerceIn(16, 64) ?: 32
-                    val loopBeats = (maxSteps / 4.0).coerceAtLeast(4.0)
-                    val nextBeat = currentBeat + (BUFFER_SIZE.toDouble() / samplesPerBeat)
+                    val nextBeat = currentBeat + (n / samplesPerBeat)
                     currentBeat = nextBeat % loopBeats
                     currentStep = ((currentBeat * 4).toInt()) % maxSteps
-
                     if (currentStep != prevStep) {
-                        triggerSequencerEvents(proj, currentStep, currentBeat)
+                        try {
+                            triggerSequencerEvents(proj, currentStep, currentBeat)
+                        } catch (e: Exception) {
+                            // The UI thread may be editing the project; never let that kill audio
+                            Log.w(TAG, "Sequencer step skipped", e)
+                        }
                     }
                 }
+                if (voiceManager.renderBlock(n, leftBlock, rightBlock, offset)) anyVoiceOutput = true
+                offset += n
+            }
 
-                // Render block through VoiceManager
-                voiceManager.renderBlock(BUFFER_SIZE, leftBlock, rightBlock)
+            // ---- Master bus: volume, mastering, limiter, meters, PCM ----
+            var maxLeft = 0f
+            var maxRight = 0f
+            var sumLR = 0f
+            var sumLL = 0f
+            var sumRR = 0f
+            var goniometerSampleIdx = 0
+            var gonioCountdown = 0
 
-                var maxLeft = 0f
-                var maxRight = 0f
-                var sumLR = 0f
-                var sumLL = 0f
-                var sumRR = 0f
-                var goniometerSampleIdx = 0
+            for (i in 0 until BUFFER_SIZE) {
+                masterBus.process(leftBlock[i], rightBlock[i], limited)
+                val sampleL = limited[0]
+                val sampleR = limited[1]
 
-                for (i in 0 until BUFFER_SIZE) {
-                    var sampleL = leftBlock[i]
-                    var sampleR = rightBlock[i]
+                sumLR += sampleL * sampleR
+                sumLL += sampleL * sampleL
+                sumRR += sampleR * sampleR
 
-                    // Apply master volume & Pro Mastering chain / look-ahead limiter
-                    val vol = (proj?.masterVolume ?: masterVolume).coerceIn(0f, 1.5f)
-                    var masterL = sampleL * vol
-                    var masterR = sampleR * vol
-
-                    val mConfig = proj?.masteringConfig
-                    if (mConfig != null && mConfig.enabled) {
-                        val lowBoost = Math.pow(10.0, mConfig.lowGainDb / 40.0).toFloat()
-                        val highBoost = Math.pow(10.0, mConfig.highGainDb / 40.0).toFloat()
-                        masterL = (masterL * lowBoost + masterL * highBoost) * 0.5f
-                        masterR = (masterR * lowBoost + masterR * highBoost) * 0.5f
-
-                        val mid = (masterL + masterR) * 0.5f
-                        val side = (masterL - masterR) * 0.5f
-                        val wideSide = side * mConfig.stereoWidth
-                        masterL = mid + wideSide
-                        masterR = mid - wideSide
-
-                        lookAheadLimiter.ceilingDb = mConfig.limiterCeilingDb
-                    } else {
-                        lookAheadLimiter.ceilingDb = -0.3f
-                    }
-
-                    val limited = FloatArray(2)
-                    lookAheadLimiter.process(masterL, masterR, limited)
-                    sampleL = limited[0]
-                    sampleR = limited[1]
-
-                    sumLR += sampleL * sampleR
-                    sumLL += sampleL * sampleL
-                    sumRR += sampleR * sampleR
-
-                    if (i % (BUFFER_SIZE / 64) == 0 && goniometerSampleIdx < 64) {
+                if (gonioCountdown == 0) {
+                    if (goniometerSampleIdx < 64) {
                         goniometerPoints[goniometerSampleIdx * 2] = (sampleL - sampleR) * 0.7071f
                         goniometerPoints[goniometerSampleIdx * 2 + 1] = (sampleL + sampleR) * 0.7071f
                         goniometerSampleIdx++
                     }
-
-                    maxLeft = maxOf(maxLeft, kotlin.math.abs(sampleL))
-                    maxRight = maxOf(maxRight, kotlin.math.abs(sampleR))
-
-                    val pcmL = (sampleL * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-                    val pcmR = (sampleR * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-
-                    audioBuffer[i * 2] = pcmL
-                    audioBuffer[i * 2 + 1] = pcmR
+                    gonioCountdown = gonioStride
                 }
+                gonioCountdown--
 
-                val denom = sqrt(sumLL * sumRR)
-                val rawCorr = if (denom > 1e-6f) sumLR / denom else 1.0f
-                phaseCorrelation = phaseCorrelation * 0.7f + rawCorr * 0.3f
+                val aL = abs(sampleL)
+                val aR = abs(sampleR)
+                if (aL > maxLeft) maxLeft = aL
+                if (aR > maxRight) maxRight = aR
 
-                for (b in 0 until 8) {
-                    var bandSum = 0f
-                    val startIdx = (b * BUFFER_SIZE / 8) * 2
-                    val endIdx = ((b + 1) * BUFFER_SIZE / 8) * 2
-                    for (idx in startIdx until endIdx step 2) {
-                        bandSum += kotlin.math.abs(audioBuffer[idx].toFloat() / 32768f)
-                    }
-                    frequencyBands[b] = (frequencyBands[b] * 0.5f + (bandSum / (BUFFER_SIZE / 8) * 10f) * 0.5f).coerceIn(0f, 1f)
+                var pcmL = (sampleL * 32767f).toInt()
+                var pcmR = (sampleR * 32767f).toInt()
+                if (pcmL > 32767) pcmL = 32767 else if (pcmL < -32768) pcmL = -32768
+                if (pcmR > 32767) pcmR = 32767 else if (pcmR < -32768) pcmR = -32768
+                audioBuffer[i * 2] = pcmL.toShort()
+                audioBuffer[i * 2 + 1] = pcmR.toShort()
+            }
+
+            val denom = sqrt(sumLL * sumRR)
+            val rawCorr = if (denom > 1e-6f) sumLR / denom else 1.0f
+            phaseCorrelation = phaseCorrelation * 0.7f + rawCorr * 0.3f
+
+            for (b in 0 until 8) {
+                var bandSum = 0f
+                var idx = b * bandSize * 2
+                val endIdx = (b + 1) * bandSize * 2
+                while (idx < endIdx) {
+                    bandSum += abs(audioBuffer[idx].toFloat() / 32768f)
+                    idx += 2
                 }
+                frequencyBands[b] = (frequencyBands[b] * 0.5f + (bandSum / bandSize * 10f) * 0.5f).coerceIn(0f, 1f)
+            }
 
-                currentPeakLeft = currentPeakLeft * 0.7f + maxLeft * 0.3f
-                currentPeakRight = currentPeakRight * 0.7f + maxRight * 0.3f
+            masterBus.takeGainReductionDb(grScratch)
+            compressorReductionDb = compressorReductionDb * 0.6f + grScratch[0] * 0.4f
+            limiterReductionDb = limiterReductionDb * 0.6f + grScratch[1] * 0.4f
+            val meanSquare = (sumLL + sumRR) / (2f * BUFFER_SIZE)
+            val rmsDb = if (meanSquare > 1e-9f) (10f * kotlin.math.log10(meanSquare)) else -90f
+            masterRmsDb = masterRmsDb * 0.8f + rmsDb * 0.2f
+            currentPeakLeft = currentPeakLeft * 0.7f + maxLeft * 0.3f
+            currentPeakRight = currentPeakRight * 0.7f + maxRight * 0.3f
 
-                audioTrack?.write(audioBuffer, 0, audioBuffer.size)
+            // A full block (longer than the 5 ms look-ahead) of silence in and out means the
+            // limiter's delay line is empty; from then on idle blocks can skip all DSP.
+            // (~-100 dBFS threshold: EQ filter tails decay towards, but never exactly reach, zero)
+            val blockSilent = !anyVoiceOutput && maxLeft < 1e-5f && maxRight < 1e-5f
+            if (blockSilent && !outputSilent) {
+                masterBus.reset()
+            }
+            outputSilent = blockSilent
+
+            writeFully(track, audioBuffer)
+            } catch (e: Exception) {
+                // Never let one bad block kill the audio thread
+                Log.e(TAG, "Audio block failed", e)
+                outputSilent = false
+                writeFully(track, silence)
             }
         }
     }
 
+    /** Meter ballistics for idle blocks, matching what a silent rendered block would produce. */
+    private fun decayMeters() {
+        currentPeakLeft *= 0.7f
+        currentPeakRight *= 0.7f
+        phaseCorrelation = phaseCorrelation * 0.7f + 0.3f
+        for (b in 0 until 8) frequencyBands[b] *= 0.5f
+        compressorReductionDb *= 0.6f
+        limiterReductionDb *= 0.6f
+        masterRmsDb = maxOf(-90f, masterRmsDb - 3f)
+    }
+
+    /**
+     * Blocking write of a whole block. Returns false (after recovering) if the device rejected it,
+     * e.g. after an audio route change killed the track.
+     */
+    private fun writeFully(track: AudioTrack, data: ShortArray): Boolean {
+        var written = 0
+        while (written < data.size && running) {
+            val r = track.write(data, written, data.size - written)
+            if (r < 0) {
+                Log.w(TAG, "AudioTrack.write failed: $r")
+                if (r == AudioTrack.ERROR_DEAD_OBJECT && running) {
+                    recreateAudioTrack(track)
+                } else {
+                    SystemClock.sleep(10)
+                }
+                return false
+            }
+            if (r == 0) {
+                // Track paused/stopped: avoid a busy spin
+                SystemClock.sleep(5)
+                if (track.playState != AudioTrack.PLAYSTATE_PLAYING) return false
+            }
+            written += r
+        }
+        return true
+    }
+
+    private fun recreateAudioTrack(dead: AudioTrack) {
+        runCatching { dead.release() }
+        audioTrack = try {
+            createAudioTrack()
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not recreate AudioTrack", e)
+            SystemClock.sleep(200)
+            null
+        }
+        if (audioTrack == null) running = false
+    }
+
     private fun triggerSequencerEvents(proj: ProjectData, step: Int, beat: Double) {
+        if (metronomeEnabled && step % 4 == 0) {
+            val beatsPerBar = proj.timeSignatureNumerator.coerceAtLeast(1)
+            playMetronomeClick(accent = (step / 4) % beatsPerBar == 0)
+        }
         val anySolo = proj.tracks.any { it.solo }
 
         for (track in proj.tracks) {
@@ -229,15 +411,15 @@ class SanwolfAudioEngine(private val context: Context) {
             if (track.steps.getOrElse(effectiveStep) { false }) {
                 val vel = track.stepVelocities.getOrElse(effectiveStep) { 0.8f } * track.volume
                 if (track.type == TrackType.DRUM_MACHINE) {
-                    val drumKey = "${track.synthPresetName} ${track.name}"
-                    triggerDrumSound(drumKey, vel, track.pan)
+                    // The instrument (or a loaded sample) decides the sound; the name is just a label
+                    triggerDrumTrack(track, vel, track.pan)
                 } else {
                     triggerTrackNote(track, 60, 0.25f, vel)
                 }
             }
 
             for (note in track.notes) {
-                if (kotlin.math.abs(note.startBeat - (beat % 16.0)) < 0.125) {
+                if (kotlin.math.abs(note.startBeat - beat) < 0.125) {
                     var effectiveVolume = track.volume
                     var effectivePan = track.pan
                     var effectiveCutoff = track.filterCutoffHz
@@ -290,8 +472,7 @@ class SanwolfAudioEngine(private val context: Context) {
 
         // Route drum machine tracks directly to percussion engine so they never play as synth notes
         if (track?.type == TrackType.DRUM_MACHINE) {
-            val drumKey = track.synthPresetName.ifEmpty { track.name }
-            triggerDrumSound(drumKey, finalVol, finalPan)
+            triggerDrumTrack(track, finalVol, finalPan)
             return
         }
 
@@ -363,7 +544,37 @@ class SanwolfAudioEngine(private val context: Context) {
         voiceManager.addVoice(drumVoice)
     }
 
+    /**
+     * One hit on a drum (step-sequencer) track: its loaded one-shot sample when it has one
+     * ([TrackData.audioUri] decoded via [preloadDrumSample]), otherwise the synth drum voice.
+     */
+    fun triggerDrumTrack(track: TrackData, velocity: Float, pan: Float = track.pan) {
+        val pcm = PcmSampleCache.get(track.audioUri)
+        if (pcm != null) {
+            voiceManager.addVoice(SampleVoice(pcm, velocity, pan))
+        } else {
+            triggerDrumSound(track.synthPresetName.ifEmpty { track.name }, velocity, pan)
+        }
+    }
+
+    /** Decodes a drum track's sample so the audio thread can play it. Blocking: call off the main thread. */
+    fun preloadDrumSample(uri: String): Boolean = PcmSampleCache.load(uri) != null
+
+    /** One metronome / count-in click. Safe to call from the UI thread. */
+    fun playMetronomeClick(accent: Boolean) {
+        val vel = (metronomeVolume * if (accent) 1.0f else 0.7f).coerceIn(0f, 1f)
+        if (vel <= 0f || released) return
+        voiceManager.addVoice(InstrumentVoices.createDrumVoice(if (accent) "rim click" else "closed hihat", vel, 0f))
+    }
+
+    /** Releases every imported-audio stem player (used when a different project is loaded). */
+    fun clearStems() {
+        stemPlayers.values.forEach { runCatching { it.release() } }
+        stemPlayers.clear()
+    }
+
     fun play() {
+        if (!running && !released) initAudioTrack()
         isPlaying = true
         stemPlayers.values.forEach { if (!it.isPlaying) runCatching { it.start() } }
     }
@@ -424,9 +635,18 @@ class SanwolfAudioEngine(private val context: Context) {
     }
 
     fun release() {
+        released = true
         isPlaying = false
-        synthJob?.cancel()
-        audioTrack?.runCatching {
+        running = false
+        val track = audioTrack
+        // Unblock a pending write, then wait for the audio thread to exit before releasing
+        track?.runCatching {
+            pause()
+            flush()
+        }
+        runCatching { audioThread?.join(500) }
+        audioThread = null
+        track?.runCatching {
             stop()
             release()
         }

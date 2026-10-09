@@ -21,7 +21,7 @@ val SanwolfPurple = Color(0xFFB388FF)
 // Text and utility
 val SanwolfTextPrimary = Color(0xFFEEEEEE)
 val SanwolfTextSecondary = Color(0xFFA0A3AB)
-val SanwolfTextMuted = Color(0xFF646772)
+val SanwolfTextMuted = Color(0xFF8B8F9A) // was 0xFF646772; raised for ~5.5:1 contrast on panels
 
 // Track Colors
 val TrackColorSynth = Color(0xFF00E5FF)

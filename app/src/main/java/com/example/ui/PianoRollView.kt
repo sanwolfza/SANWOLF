@@ -254,7 +254,7 @@ fun PianoRollView(
                     )
                     Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = "INST: ${track.synthPresetName.ifBlank { track.name }}",
+                        text = track.name,
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
