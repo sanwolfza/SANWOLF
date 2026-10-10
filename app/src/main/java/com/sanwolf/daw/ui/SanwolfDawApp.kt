@@ -60,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sanwolf.daw.ai.GeminiDawClient
 import com.sanwolf.daw.audio.SanwolfAudioEngine
 import com.sanwolf.daw.firebase.FirebaseDawManager
@@ -91,177 +92,22 @@ import com.sanwolf.daw.ui.theme.SanwolfTextSecondary
 fun SanwolfDawApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val audioEngine = remember { SanwolfAudioEngine(context) }
-    val recordingEngine = remember { RecordingEngine(context.applicationContext) }
+    // Session state lives in the ViewModel so it survives activity recreation (engines included)
+    val vm: DawViewModel = viewModel()
+    val audioEngine = vm.audioEngine
+    val recordingEngine = vm.recordingEngine
     val aiClient = remember { GeminiDawClient() }
     val firebaseManager = remember { FirebaseDawManager(context) }
-    val undoRedoManager = remember { UndoRedoManager {} }
-    var projectVersion by remember { mutableIntStateOf(0) }
-
-    // Initial default project
-    val project = remember {
-        val p = ProjectData(
-            title = "WOLF_EXP_SESSION_01",
-            bpm = 126,
-            swing = 0.15f
-        )
-        // 1. Kick Drum
-        p.tracks.add(
-            TrackData(
-                name = "808 Sub Kick",
-                type = TrackType.DRUM_MACHINE,
-                colorHex = 0xFFFF5722,
-                synthPresetName = "808 Sub Kick",
-                synthPresetCategory = "Drum Kits",
-                stepCount = 32,
-                steps = booleanArrayOf(
-                    true, false, false, false,  false, false, true, false,
-                    true, false, false, false,  false, false, false, true,
-                    true, false, false, false,  false, false, true, false,
-                    true, false, false, false,  false, false, true, false
-                )
-            )
-        )
-        // 2. Snare / Clap
-        p.tracks.add(
-            TrackData(
-                name = "Snare Trap Crack",
-                type = TrackType.DRUM_MACHINE,
-                colorHex = 0xFFFF2A6D,
-                synthPresetName = "Snare Trap Crack",
-                synthPresetCategory = "Drum Kits",
-                stepCount = 32,
-                steps = booleanArrayOf(
-                    false, false, false, false, true, false, false, false,
-                    false, false, false, false, true, false, false, false,
-                    false, false, false, false, true, false, false, false,
-                    false, false, false, false, true, false, false, true
-                )
-            )
-        )
-        // 3. Polyrhythmic HiHats (24 steps polyrhythm!)
-        p.tracks.add(
-            TrackData(
-                name = "Closed Hi-Hat",
-                type = TrackType.DRUM_MACHINE,
-                colorHex = 0xFF76FF03,
-                synthPresetName = "Closed Hi-Hat",
-                synthPresetCategory = "Drum Kits",
-                stepCount = 24,
-                steps = booleanArrayOf(
-                    true, false, true, false, true, false, true, false,
-                    true, true, true, false,  true, false, true, false,
-                    true, false, true, false, true, true, true, false
-                )
-            )
-        )
-        // 4. Concert Grand Piano
-        p.tracks.add(
-            TrackData(
-                name = "Grand Piano",
-                type = TrackType.SYNTH,
-                colorHex = 0xFFFFD700,
-                synthPresetName = "Grand Piano",
-                synthPresetCategory = "Keys & Piano",
-                synthWaveform = SynthWaveform.TRIANGLE,
-                filterCutoffHz = 6500f,
-                notes = mutableListOf(
-                    MidiNote(pitch = 60, startBeat = 0.0, lengthBeats = 1.0, velocity = 0.85f),
-                    MidiNote(pitch = 64, startBeat = 0.0, lengthBeats = 1.0, velocity = 0.80f),
-                    MidiNote(pitch = 67, startBeat = 0.0, lengthBeats = 1.0, velocity = 0.82f),
-                    MidiNote(pitch = 57, startBeat = 2.0, lengthBeats = 1.5, velocity = 0.85f),
-                    MidiNote(pitch = 60, startBeat = 2.0, lengthBeats = 1.5, velocity = 0.80f),
-                    MidiNote(pitch = 65, startBeat = 2.0, lengthBeats = 1.5, velocity = 0.82f)
-                )
-            )
-        )
-        // 5. 808 Sub Bass
-        p.tracks.add(
-            TrackData(
-                name = "808 Sub Boom",
-                type = TrackType.SYNTH,
-                colorHex = 0xFFFFAB00,
-                synthPresetName = "808 Sub Boom",
-                synthPresetCategory = "Basses & 808s",
-                synthWaveform = SynthWaveform.SINE,
-                filterCutoffHz = 500f,
-                notes = mutableListOf(
-                    MidiNote(pitch = 36, startBeat = 0.0, lengthBeats = 1.5, velocity = 0.95f),
-                    MidiNote(pitch = 36, startBeat = 1.5, lengthBeats = 0.5, velocity = 0.85f),
-                    MidiNote(pitch = 33, startBeat = 2.0, lengthBeats = 1.5, velocity = 0.90f),
-                    MidiNote(pitch = 41, startBeat = 3.5, lengthBeats = 0.5, velocity = 0.90f)
-                )
-            )
-        )
-        // 6. Expressive Violin Solo
-        p.tracks.add(
-            TrackData(
-                name = "Violin Solo",
-                type = TrackType.SYNTH,
-                colorHex = 0xFF69F0AE,
-                synthPresetName = "Violin Solo",
-                synthPresetCategory = "Strings & Orchestral",
-                synthWaveform = SynthWaveform.SAWTOOTH,
-                filterCutoffHz = 4800f,
-                notes = mutableListOf(
-                    MidiNote(pitch = 72, startBeat = 0.0, lengthBeats = 2.0, velocity = 0.88f),
-                    MidiNote(pitch = 76, startBeat = 2.0, lengthBeats = 1.5, velocity = 0.85f),
-                    MidiNote(pitch = 79, startBeat = 3.5, lengthBeats = 0.5, velocity = 0.92f)
-                )
-            )
-        )
-        // 7. Punchy Cyber Saw Lead
-        p.tracks.add(
-            TrackData(
-                name = "Cyber Lead",
-                type = TrackType.SYNTH,
-                colorHex = 0xFF00E5FF,
-                synthPresetName = "Cyber Lead",
-                synthPresetCategory = "Leads & Synths",
-                synthWaveform = SynthWaveform.SAWTOOTH,
-                filterCutoffHz = 4000f,
-                notes = mutableListOf(
-                    MidiNote(pitch = 60, startBeat = 0.0, lengthBeats = 1.0, velocity = 0.85f),
-                    MidiNote(pitch = 63, startBeat = 1.0, lengthBeats = 1.0, velocity = 0.80f),
-                    MidiNote(pitch = 67, startBeat = 2.0, lengthBeats = 1.5, velocity = 0.90f),
-                    MidiNote(pitch = 70, startBeat = 3.5, lengthBeats = 0.5, velocity = 0.85f)
-                )
-            )
-        )
-        // 8. Modular Synth Rack Track
-        p.tracks.add(
-            TrackData(
-                name = "Modular Acid Voice",
-                type = TrackType.MODULAR_SYNTH,
-                colorHex = 0xFFD9A441,
-                modularGraph = ModularGraph(
-                    nodes = mutableListOf(
-                        ModularNode(name = "VCO 1 (Saw)", type = ModularNodeType.OSCILLATOR, x = 60f, y = 80f),
-                        ModularNode(name = "Ladder Filter", type = ModularNodeType.FILTER, x = 280f, y = 80f),
-                        ModularNode(name = "Envelope", type = ModularNodeType.ADSR_ENV, x = 160f, y = 260f),
-                        ModularNode(name = "Wolf Saturation", type = ModularNodeType.WOLF_DRIVE, x = 500f, y = 80f),
-                        ModularNode(name = "Master Out", type = ModularNodeType.OUTPUT, x = 720f, y = 80f)
-                    ),
-                    cables = mutableListOf(
-                        NodeCable(fromNodeId = "1", fromPort = "Out", toNodeId = "2", toPort = "In", colorHex = 0xFFD9A441)
-                    )
-                )
-            )
-        )
-        p
-    }
+    val undoRedoManager = vm.undoRedoManager
+    var projectVersion by vm.projectVersion
+    val project = vm.project
 
     LaunchedEffect(projectVersion) {
         undoRedoManager.saveState(project)
         audioEngine.currentProject = project
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            recordingEngine.release()
-            audioEngine.release()
-        }
-    }
+    // Engines are released in DawViewModel.onCleared(), not when this composable leaves.
 
     // Navigation & View States
     var viewMode by remember { mutableStateOf(DawViewMode.ARRANGER) }
@@ -271,7 +117,7 @@ fun SanwolfDawApp() {
     var isCountInEnabled by remember { mutableStateOf(dawPrefs.getBoolean("count_in_enabled", false)) }
     var isCountingIn by remember { mutableStateOf(false) }
     var isFocusMode by remember { mutableStateOf(false) } // Disappearing windows immersion toggle
-    var selectedTrackIndex by remember { mutableIntStateOf(0) }
+    var selectedTrackIndex by vm.selectedTrackIndex
     var isRecordingAudio by remember { mutableStateOf(false) }
     // Left drawer: icon rail + collapsible panel (state survives recomposition / recreation)
     var isSidebarExpanded by rememberSaveable { mutableStateOf(true) }
@@ -305,11 +151,11 @@ fun SanwolfDawApp() {
     val audioFileManager = remember { AudioFileManager(context.applicationContext) }
     // Not saveable on purpose: after process death the in-memory project is the default
     // session again, so it must not silently point at (and overwrite) a saved file.
-    var currentProjectFileId by remember { mutableStateOf<String?>(null) }
-    var savedProjectJson by remember { mutableStateOf<String?>(null) }
-    var isProjectDirty by remember { mutableStateOf(false) }
-    var projectListVersion by remember { mutableIntStateOf(0) }
-    var projectLoadKey by remember { mutableIntStateOf(0) }
+    var currentProjectFileId by vm.currentProjectFileId
+    var savedProjectJson by vm.savedProjectJson
+    var isProjectDirty by vm.isProjectDirty
+    var projectListVersion by vm.projectListVersion
+    var projectLoadKey by vm.projectLoadKey
 
     LaunchedEffect(isMetronomeEnabled, metronomeVolume, isCountInEnabled) {
         audioEngine.metronomeEnabled = isMetronomeEnabled
@@ -483,6 +329,54 @@ fun SanwolfDawApp() {
         audioEngine.updateStemMuteSolo(project)
         audioEngine.currentProject = project
         selectedTrackIndex = 0
+        projectVersion++
+        projectLoadKey++
+    }
+
+    /**
+     * Undo/redo: copies a snapshot into the working project without stopping playback. Stem
+     * players are rebuilt only when the set of audio files changed.
+     */
+    val restoreSnapshot: (ProjectData) -> Unit = { snap ->
+        fun stemKeys(p: ProjectData) = p.tracks
+            .filter { it.type == TrackType.AUDIO_IMPORT && !it.audioUri.isNullOrBlank() }
+            .map { it.id to it.audioUri }
+            .toSet()
+        val stemsBefore = stemKeys(project)
+        val newTracks = snap.tracks.toList()
+        project.tracks.clear()
+        project.tracks.addAll(newTracks)
+        project.title = snap.title
+        project.bpm = snap.bpm
+        project.swing = snap.swing
+        project.timeSignatureNumerator = snap.timeSignatureNumerator
+        project.timeSignatureDenominator = snap.timeSignatureDenominator
+        project.masterVolume = snap.masterVolume
+        project.masteringConfig = snap.masteringConfig
+        project.artist = snap.artist
+        project.musicalKey = snap.musicalKey
+        project.genre = snap.genre
+        project.songNotes = snap.songNotes
+        // Copy the bookkeeping fields too, so the next undo snapshot equals this one (no new entry)
+        val newMappings = snap.midiMappings.toList()
+        project.midiMappings.clear()
+        project.midiMappings.addAll(newMappings)
+        project.collaborationRoomId = snap.collaborationRoomId
+        project.isCloudSynced = snap.isCloudSynced
+        project.lastSavedTimestamp = snap.lastSavedTimestamp
+        if (stemKeys(project) != stemsBefore) {
+            audioEngine.clearStems()
+            project.tracks.forEach { t ->
+                val uriStr = t.audioUri
+                if (t.type == TrackType.AUDIO_IMPORT && !uriStr.isNullOrBlank()) {
+                    audioEngine.addStemAudio(t.id, Uri.parse(uriStr))
+                }
+            }
+            audioEngine.resyncStems()
+        }
+        audioEngine.masterVolume = project.masterVolume
+        audioEngine.updateStemMuteSolo(project)
+        if (selectedTrackIndex >= project.tracks.size) selectedTrackIndex = (project.tracks.size - 1).coerceAtLeast(0)
         projectVersion++
         projectLoadKey++
     }
@@ -1132,12 +1026,15 @@ fun SanwolfDawApp() {
                 onStop = { audioEngine.stop() },
                 onRecordToggle = onRecordPressed,
                 onUndo = {
-                    undoRedoManager.undo(project)
-                    projectVersion++
+                    // undo()/redo() return a snapshot; it has to be copied into the working project
+                    val snapshot = undoRedoManager.undo(project)
+                    if (snapshot != null) restoreSnapshot(snapshot)
+                    else Toast.makeText(context, "Nothing to undo", Toast.LENGTH_SHORT).show()
                 },
                 onRedo = {
-                    undoRedoManager.redo(project)
-                    projectVersion++
+                    val snapshot = undoRedoManager.redo(project)
+                    if (snapshot != null) restoreSnapshot(snapshot)
+                    else Toast.makeText(context, "Nothing to redo", Toast.LENGTH_SHORT).show()
                 },
                 onKeyTriggered = { pitch ->
                     // Live record / insert note into active track if in Piano Roll mode
