@@ -828,7 +828,9 @@ private fun hitTestClip(clips: List<ArrClip>, pos: Offset, h: Float, beatPx: Flo
         val x1 = (clip.endBeat * beatPx).toFloat()
         val (y0, y1) = clipBand(clip.kind, shares, h)
         if (pos.x >= x0 && pos.x <= x1 + edgePx * 0.4f && pos.y >= y0 - 4f && pos.y <= y1 + 4f) {
-            return ClipHit(clip, isResizeEdge = pos.x >= x1 - edgePx)
+            // On short clips the grip shrinks so the body can still be grabbed to move it
+            val edge = minOf(edgePx, (x1 - x0) * 0.3f)
+            return ClipHit(clip, isResizeEdge = pos.x >= x1 - edge)
         }
     }
     return null
