@@ -427,6 +427,7 @@ fun AiStudioDialog(
                                                     modularTrack.modularGraph = graph
                                                     statusMessage = "Applied new modular patch: '$modularPrompt'!"
                                                 } catch (e: Exception) {
+                                                    android.util.Log.e("AiStudioDialog", "AI action failed", e)
                                                     statusMessage = "Error: ${e.message}"
                                                 } finally {
                                                     isThinking = false
@@ -471,6 +472,7 @@ fun AiStudioDialog(
                                                     modularTrack.modularGraph = graph
                                                     statusMessage = "Applied new modular patch!"
                                                 } catch (e: Exception) {
+                                                    android.util.Log.e("AiStudioDialog", "AI action failed", e)
                                                     statusMessage = "Error: ${e.message}"
                                                 } finally {
                                                     isThinking = false
@@ -1013,6 +1015,7 @@ private fun CoProducerArrangeTabContent(
                         resultStatus = arrangement.explanation
                         onApplyArrangement(arrangement)
                     } catch (e: Exception) {
+                        android.util.Log.e("AiStudioDialog", "Arrangement failed", e)
                         resultStatus = "Arrangement failed: ${e.message}"
                     }
                     isArranging = false

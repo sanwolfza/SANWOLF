@@ -32,7 +32,8 @@ class FirebaseDawManager(private val context: Context) {
         try {
             com.google.firebase.FirebaseApp.initializeApp(context)
         } catch (e: Exception) {
-            e.printStackTrace()
+            // Missing google-services.json: cloud features stay offline, the DAW keeps working
+            android.util.Log.e("FirebaseDawManager", "Firebase init failed (is google-services.json present?)", e)
         }
     }
 

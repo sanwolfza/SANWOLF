@@ -299,6 +299,7 @@ object MidiExporter {
             }
             uri
         } catch (e: Exception) {
+            android.util.Log.w("MidiExporter", "FileProvider URI failed, copying to app music dir", e)
             val extDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC) ?: context.filesDir
             val copyFile = File(extDir, file.name)
             file.copyTo(copyFile, overwrite = true)

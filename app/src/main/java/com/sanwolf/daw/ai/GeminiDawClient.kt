@@ -1,5 +1,6 @@
 package com.sanwolf.daw.ai
 
+import android.util.Log
 import com.sanwolf.daw.BuildConfig
 import com.sanwolf.daw.model.MasteringConfig
 import com.sanwolf.daw.model.MidiNote
@@ -95,6 +96,7 @@ class GeminiDawClient {
 
             parseFinishingResultJson(text)
         } catch (e: Exception) {
+            Log.w(GEMINI_TAG, "Finishing suggestion failed, using local fallback", e)
             generateLocalFinishingSuggestion(project, "Auto-generating complement: ${e.message}")
         }
     }
@@ -213,6 +215,7 @@ class GeminiDawClient {
                 addedLeadNotes = notes
             )
         } catch (e: Exception) {
+            Log.w(GEMINI_TAG, "Track clone failed, using local fallback", e)
             TrackCloneResult(
                 analysis = "Fallback Re-Master generated due to offline state.",
                 targetLufs = -14f,
@@ -287,6 +290,7 @@ class GeminiDawClient {
                 keySignature = "F Minor"
             )
         } catch (e: Exception) {
+            Log.w(GEMINI_TAG, "Lyria generation failed, using local fallback", e)
             LyriaMusicResult(
                 success = true,
                 trackName = "Lyria Synth: ${prompt.take(18)}",
@@ -358,6 +362,7 @@ class GeminiDawClient {
 
             parseModularGraphJson(text)
         } catch (e: Exception) {
+            Log.w(GEMINI_TAG, "Modular patch generation failed, using default graph", e)
             createDefaultModularGraph(description)
         }
     }
@@ -518,7 +523,10 @@ class GeminiDawClient {
                     isProFullLength = isProAudio
                 )
                 lyriaAudio = lyriaRes.audioBase64
-            } catch (ignored: Exception) {}
+            } catch (e: Exception) {
+                // Optional extra: the composition continues without Lyria audio
+                Log.w(GEMINI_TAG, "Lyria audio for composition failed", e)
+            }
         }
 
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
@@ -556,6 +564,7 @@ class GeminiDawClient {
 
             parseMusicProjectJson(text, genre, bpm, keyScale, lyriaAudio)
         } catch (e: Exception) {
+            Log.w(GEMINI_TAG, "Gemini composition failed, using local generator", e)
             generateLocalMusicByParameters(genre, bpm, drumElements, drumStyle, instruments, keyScale, lyriaAudio)
         }
     }
@@ -919,6 +928,7 @@ class GeminiDawClient {
             }
             if (graph.nodes.isEmpty()) createDefaultModularGraph("Default") else graph
         } catch (e: Exception) {
+            Log.w(GEMINI_TAG, "Modular graph parse failed, using fallback graph", e)
             createDefaultModularGraph("Fallback")
         }
     }
@@ -1035,3 +1045,4 @@ data class ArrangementResult(
     val arrangedTracks: List<TrackData>
 )
 
+private const val GEMINI_TAG = "GeminiDawClient"
