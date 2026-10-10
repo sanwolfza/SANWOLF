@@ -70,6 +70,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.sanwolf.daw.audio.InstrumentDefinition
 import com.sanwolf.daw.audio.InstrumentLibrary
+import com.sanwolf.daw.audio.MultisampleLibrary
+import com.sanwolf.daw.audio.MultisamplePickerGroup
+import com.sanwolf.daw.audio.MultisampleSpec
 import com.sanwolf.daw.audio.SanwolfAudioEngine
 import com.sanwolf.daw.model.InstrumentCatalog
 import com.sanwolf.daw.model.InstrumentCategory
@@ -115,7 +118,11 @@ fun InstrumentSelectorDialog(
         val catalogPresets = InstrumentCatalog.presets
         val libraryPresets = InstrumentLibrary.definitions.map { def -> def.toInstrumentPreset() }
         val combined = mutableListOf<InstrumentPreset>()
-        combined.addAll(catalogPresets)
+        // Bundled multisample instruments (VCSL) first in their sections; a synth preset with
+        // the same name is hidden so the track name always maps to one instrument.
+        val multisamplePresets = MultisampleLibrary.specs.map { it.toInstrumentPreset() }
+        combined.addAll(multisamplePresets)
+        combined.addAll(catalogPresets.filter { p -> !MultisampleLibrary.isMultisample(p.name) })
         libraryPresets.forEach { libPreset ->
             if (combined.none { it.id == libPreset.id || it.name.equals(libPreset.name, ignoreCase = true) }) {
                 combined.add(libPreset)
@@ -1063,8 +1070,37 @@ private fun InstrumentDefinition.toInstrumentPreset(): InstrumentPreset {
     )
 }
 
+/** Picker entry for a bundled multisample instrument, under the existing headings. */
+private fun MultisampleSpec.toInstrumentPreset(): InstrumentPreset {
+    val modelCat = when (group) {
+        MultisamplePickerGroup.KEYS -> InstrumentCategory.KEYS_PAD
+        MultisamplePickerGroup.MALLETS -> InstrumentCategory.WORLD_PERCUSSION
+        MultisamplePickerGroup.PLUCKED -> InstrumentCategory.ORCHESTRAL_STRINGS
+        MultisamplePickerGroup.WORLD -> InstrumentCategory.WORLD_PERCUSSION
+    }
+    return InstrumentPreset(
+        id = presetId,
+        name = name,
+        category = modelCat,
+        waveform = SynthWaveform.SINE,
+        attackMs = 1f,
+        decayMs = 0f,
+        sustainLevel = 1f,
+        releaseMs = releaseMs,
+        description = "Sampled instrument • VCSL (CC0)",
+        defaultTrackType = TrackType.SYNTH,
+        colorHex = colorHex
+    )
+}
+
 private fun playPresetPreview(audioEngine: SanwolfAudioEngine?, preset: InstrumentPreset) {
     if (audioEngine == null) return
+
+    // Sampled instruments: decode on first use, then play middle C (melodic, never a drum hit).
+    if (preset.id.startsWith(MultisampleLibrary.PRESET_ID_PREFIX)) {
+        audioEngine.previewMultisample(preset.name, pitch = 60, durationSec = 0.8f, velocity = 0.85f)
+        return
+    }
 
     when (preset.category) {
         InstrumentCategory.DRUM_KIT, InstrumentCategory.WORLD_PERCUSSION -> {

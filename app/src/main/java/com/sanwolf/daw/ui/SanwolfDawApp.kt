@@ -1266,9 +1266,10 @@ fun SanwolfDawApp() {
                 currentTrack = targetTrack,
                 audioEngine = audioEngine,
                 onPresetSelected = { preset ->
+                    val wasDrumTrack = targetTrack.type == TrackType.DRUM_MACHINE
                     InstrumentCatalog.applyPresetToTrack(targetTrack, preset)
                     // A new instrument replaces a drum track's factory one-shot sample.
-                    if (targetTrack.type == TrackType.DRUM_MACHINE) {
+                    if (wasDrumTrack || targetTrack.type == TrackType.DRUM_MACHINE) {
                         targetTrack.audioUri = null
                         targetTrack.audioFileName = null
                     }

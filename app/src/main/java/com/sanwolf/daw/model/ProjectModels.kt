@@ -672,7 +672,10 @@ object InstrumentCatalog {
         track.sustainLevel = preset.sustainLevel
         track.releaseMs = preset.releaseMs
         track.colorHex = preset.colorHex
-        if (preset.category == InstrumentCategory.DRUM_KIT || preset.category == InstrumentCategory.WORLD_PERCUSSION) {
+        if (preset.id.startsWith("vcsl.")) {
+            // Bundled sampled instruments (VCSL) are melodic even under the Percussion heading.
+            if (track.type == TrackType.DRUM_MACHINE) track.type = TrackType.SYNTH
+        } else if (preset.category == InstrumentCategory.DRUM_KIT || preset.category == InstrumentCategory.WORLD_PERCUSSION) {
             track.type = TrackType.DRUM_MACHINE
         } else if (track.type == TrackType.DRUM_MACHINE && preset.defaultTrackType == TrackType.SYNTH) {
             track.type = TrackType.SYNTH

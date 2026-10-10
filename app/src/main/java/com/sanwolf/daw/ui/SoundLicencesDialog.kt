@@ -62,18 +62,19 @@ data class ThirdPartySoundSource(
 )
 
 /**
- * Third-party sample libraries. VCSL instruments are being prepared separately; once their
- * manifest entries (source containing "VCSL") are in assets/factory/manifest.json they are
- * counted here automatically.
+ * Third-party sample libraries. Bundled sounds whose source contains [ThirdPartySoundSource.key]
+ * are counted automatically: the VCSL multisample instruments (assets/instruments/vcsl) arrive
+ * through FactoryLibrary.licenceGroups as their own group.
  */
 val THIRD_PARTY_SOUND_SOURCES = listOf(
     ThirdPartySoundSource(
         key = "VCSL",
         name = "Versilian Community Sample Library (VCSL)",
-        author = "Versilian Studios LLC",
+        author = "Versilian Studios / Samuel Gossner",
         licence = "CC0 1.0 Universal (public domain dedication)",
         url = "https://github.com/sgossner/VCSL",
-        notes = "Acoustic instrument samples. The pipe organ is excluded from SANWOLF. " +
+        notes = "Sampled instruments: Steinway Grand Piano, FM Electric Piano, Marimba, Vibraphone, " +
+            "Kalimba, Balafon, Concert Harp. The pipe organ is excluded from SANWOLF (separate licence). " +
             "CC0 needs no attribution; it is credited here as a courtesy."
     )
 )

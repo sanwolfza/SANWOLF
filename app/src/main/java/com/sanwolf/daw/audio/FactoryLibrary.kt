@@ -212,9 +212,12 @@ object FactoryLibrary {
         }
     }
 
-    /** Sounds grouped by (source, licence, author, url), for Settings > About > Sound licences. */
-    fun licenceGroups(context: Context): List<SoundLicenceGroup> =
-        sounds(context)
+    /**
+     * Sounds grouped by (source, licence, author, url), for Settings > About > Sound licences.
+     * Includes the bundled multisample instruments (assets/instruments/vcsl) as their own group.
+     */
+    fun licenceGroups(context: Context): List<SoundLicenceGroup> {
+        val factory = sounds(context)
             .groupBy { listOf(it.source, it.licence, it.author, it.url ?: "") }
             .map { (_, list) ->
                 val first = list.first()
@@ -227,7 +230,23 @@ object FactoryLibrary {
                     genres = list.map { it.genreLabel }.distinct()
                 )
             }
-            .sortedByDescending { it.soundCount }
+        val multisampleCount = runCatching { MultisampleLibrary.sampleCount(context) }
+            .onFailure { Log.e(TAG, "Multisample manifest unreadable", it) }
+            .getOrDefault(0)
+        val multisample = if (multisampleCount > 0) {
+            listOf(
+                SoundLicenceGroup(
+                    source = MultisampleLibrary.source,
+                    licence = MultisampleLibrary.licence,
+                    author = MultisampleLibrary.author,
+                    url = MultisampleLibrary.url,
+                    soundCount = multisampleCount,
+                    genres = MultisampleLibrary.specs.map { it.name }
+                )
+            )
+        } else emptyList()
+        return (factory + multisample).sortedByDescending { it.soundCount }
+    }
 
     // ---------------------------------------------------------------- preview
 
