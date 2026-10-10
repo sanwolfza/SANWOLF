@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         // Drop decoded samples the open project doesn't use when the system is short on memory
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             com.sanwolf.daw.audio.PcmSampleCache.trim()
+            com.sanwolf.daw.audio.MultisampleLibrary.trim()
         }
     }
 

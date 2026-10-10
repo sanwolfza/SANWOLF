@@ -126,6 +126,7 @@ class SanwolfAudioEngine(private val context: Context) {
     var metronomeVolume = 0.5f
 
     init {
+        MultisampleLibrary.init(context)
         initAudioTrack()
     }
 
@@ -538,6 +539,15 @@ class SanwolfAudioEngine(private val context: Context) {
             !track?.name.isNullOrEmpty() -> track!!.name
             else -> "keys.grand.piano"
         }
+        // Bundled multisample instruments (VCSL) play their decoded samples. Until the decode is
+        // done the note is skipped silently (logged once) rather than falling back to a synth.
+        val multisample = MultisampleLibrary.find(instrumentQuery)
+        if (multisample != null) {
+            val msVoice = multisample.createVoice(pitch, durationSec, finalVol, finalPan)
+            if (msVoice != null) voiceManager.addVoice(msVoice)
+            return
+        }
+
         val def = InstrumentLibrary.getById(instrumentQuery)
 
         val voice: ActiveVoice = InstrumentVoices.createVoiceForDefinition(
@@ -631,6 +641,12 @@ class SanwolfAudioEngine(private val context: Context) {
         val sampleUris = jobs.filter { it.first == TrackType.DRUM_MACHINE && !it.third.isNullOrBlank() }
             .mapNotNull { it.third }.toSet()
         PcmSampleCache.setPinned(sampleUris)
+        // Multisample instruments the project uses: pin them and decode them in the background.
+        val multisampleNames = jobs
+            .filter { it.first != TrackType.DRUM_MACHINE && it.first != TrackType.AUDIO_IMPORT && MultisampleLibrary.isMultisample(it.second) }
+            .map { it.second }
+        MultisampleLibrary.setPinned(multisampleNames)
+        multisampleNames.distinct().forEach { MultisampleLibrary.prewarm(it) }
         runCatching {
             prewarmExecutor.execute {
                 for ((type, instrument, uri) in jobs) {
@@ -639,6 +655,8 @@ class SanwolfAudioEngine(private val context: Context) {
                         if (type == TrackType.DRUM_MACHINE && !uri.isNullOrBlank()) {
                             PcmSampleCache.load(uri)
                         }
+                        // Multisample instruments are decoded by MultisampleLibrary (above).
+                        if (type != TrackType.DRUM_MACHINE && MultisampleLibrary.isMultisample(instrument)) continue
                         val key = "${type.name}|$instrument"
                         if (!warmedKeys.add(key)) continue
                         val def = InstrumentLibrary.getById(instrument)
@@ -658,6 +676,17 @@ class SanwolfAudioEngine(private val context: Context) {
                 }
             }
         }.onFailure { Log.w(TAG, "Prewarm not scheduled", it) }
+    }
+
+    /**
+     * Instrument-picker preview of a multisample instrument: decodes it in the background if
+     * needed, then plays [pitch] once it is ready. Safe to call from the UI thread.
+     */
+    fun previewMultisample(name: String, pitch: Int = 60, durationSec: Float = 0.8f, velocity: Float = 0.85f) {
+        if (released) return
+        MultisampleLibrary.prewarm(name) {
+            MultisampleLibrary.find(name)?.createVoice(pitch, durationSec, velocity, 0f)?.let { voiceManager.addVoice(it) }
+        }
     }
 
     /** Decodes a drum track's sample so the audio thread can play it. Blocking: call off the main thread. */

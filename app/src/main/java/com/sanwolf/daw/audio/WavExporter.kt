@@ -25,6 +25,7 @@ object WavExporter {
         private set
 
     fun exportProjectToWav(context: Context, project: ProjectData, numBars: Int = 4): File {
+        MultisampleLibrary.init(context)
         val sampleRate = 44100
         val channels = 2
         val bpm = project.bpm
@@ -177,10 +178,22 @@ object WavExporter {
         track: com.sanwolf.daw.model.TrackData,
         sampleRate: Int
     ) {
-        val definition = InstrumentLibrary.getById(track.synthPresetName.ifEmpty { track.name })
+        val instrumentName = track.synthPresetName.ifEmpty { track.name }
         val durationSec = (durationSamples.toFloat() / sampleRate).coerceAtLeast(0.1f)
         val effVol = track.volume * note.velocity
-        val voice = InstrumentVoices.createVoiceForDefinition(definition, note.pitch, durationSec, effVol, track.pan)
+        val voice: ActiveVoice = if (MultisampleLibrary.isMultisample(instrumentName)) {
+            // Same voice as live playback; offline we can wait for the decode.
+            val inst = MultisampleLibrary.loadNow(instrumentName)
+            val msVoice = inst?.createVoice(note.pitch, durationSec, effVol, track.pan)
+            if (msVoice == null) {
+                Log.w(TAG, "Skipping note on '${track.name}': $instrumentName couldn't be decoded")
+                return
+            }
+            msVoice
+        } else {
+            val definition = InstrumentLibrary.getById(instrumentName)
+            InstrumentVoices.createVoiceForDefinition(definition, note.pitch, durationSec, effVol, track.pan)
+        }
 
         var sIdx = startSample
         val panClamped = track.pan.coerceIn(-1f, 1f)

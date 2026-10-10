@@ -19,6 +19,12 @@ object PcmSampleCache {
     /** Soft budget for decoded audio: 8M floats ≈ 32 MB (≈ 3 min of mono 44.1 kHz). */
     private const val MAX_TOTAL_FLOATS = 8L * 1024 * 1024
 
+    /**
+     * Budget for all decoded audio in bytes (≈ 32 MB): drum samples here plus the bundled
+     * multisample instruments ([MultisampleLibrary], stored as 16-bit) share it.
+     */
+    const val BUDGET_BYTES: Long = MAX_TOTAL_FLOATS * 4L
+
     private val cache = ConcurrentHashMap<String, FloatArray>()
     private val totalFloats = java.util.concurrent.atomic.AtomicLong(0)
 
@@ -54,6 +60,9 @@ object PcmSampleCache {
 
     fun sizeInFloats(): Long = totalFloats.get()
 
+    /** Bytes held by decoded drum samples. */
+    fun decodedBytes(): Long = totalFloats.get() * 4L
+
     /** Decodes [uri] (a file:// or plain path to a PCM WAV) into mono floats at 44.1 kHz. Blocking. */
     fun load(uri: String): FloatArray? {
         cache[uri]?.let { return it }
@@ -65,9 +74,10 @@ object PcmSampleCache {
             .getOrNull() ?: return null
         val previous = cache.put(uri, pcm)
         totalFloats.addAndGet(pcm.size.toLong() - (previous?.size ?: 0))
-        if (totalFloats.get() > MAX_TOTAL_FLOATS) {
-            Log.i(TAG, "Sample cache over budget (${totalFloats.get()} floats): evicting unused samples")
+        if (decodedBytes() + MultisampleLibrary.decodedBytes() > BUDGET_BYTES) {
+            Log.i(TAG, "Sample cache over budget (${totalFloats.get()} floats + multisamples): evicting unused samples")
             trim()
+            MultisampleLibrary.trim()
         }
         return pcm
     }
