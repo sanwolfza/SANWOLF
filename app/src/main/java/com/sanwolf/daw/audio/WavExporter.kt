@@ -2,6 +2,8 @@ package com.sanwolf.daw.audio
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.util.Log
 import androidx.core.content.FileProvider
 import com.sanwolf.daw.model.ProjectData
 import com.sanwolf.daw.model.SynthWaveform
@@ -15,6 +17,7 @@ import kotlin.math.exp
 import kotlin.math.sin
 
 object WavExporter {
+    private const val TAG = "WavExporter"
 
     fun exportProjectToWav(context: Context, project: ProjectData, numBars: Int = 4): File {
         val sampleRate = 44100
@@ -30,12 +33,23 @@ object WavExporter {
         val samplesPerStep = samplesPerBeat / 4.0
 
         // Render project tracks into buffer matching live playback 1:1 via InstrumentLibrary definitions
+        val anySolo = project.tracks.any { it.solo }
         for (track in project.tracks) {
-            if (track.muted) continue
+            if (track.muted || (anySolo && !track.solo)) continue
+
+            // Audio clips (imported stems, mic takes, factory loops) start at their arranger position
+            if (track.type == TrackType.AUDIO_IMPORT) {
+                renderAudioClipIntoBuffer(context, pcmData, totalSamples, track, samplesPerBeat)
+                continue
+            }
 
             val stepCount = track.stepCount.coerceAtLeast(1)
+            // Patterns start at their arranger position and loop from there
+            val startStep = (track.patternStartBeat * 4.0 + 0.5).toInt().coerceAtLeast(0)
             for (stepIdx in 0 until (numBars * 16)) {
-                val effectiveStep = stepIdx % stepCount
+                val rel = stepIdx - startStep
+                if (rel < 0) continue
+                val effectiveStep = rel % stepCount
                 if (track.steps.getOrElse(effectiveStep) { false }) {
                     val stepStartSample = (stepIdx * samplesPerStep).toInt()
                     val vel = track.stepVelocities.getOrElse(effectiveStep) { 0.8f } * track.volume
@@ -50,6 +64,7 @@ object WavExporter {
             }
 
             for (note in track.notes) {
+                if (!track.isNoteInClip(note)) continue // cropped by the clip's right edge
                 val startSample = (note.startBeat * samplesPerBeat).toInt()
                 val durationSamples = (note.lengthBeats * samplesPerBeat).toInt()
                 renderSynthNoteIntoBuffer(
@@ -79,6 +94,39 @@ object WavExporter {
         }
 
         return outFile
+    }
+
+    /** Mixes an audio track's file into [buffer] starting at its clip position (beats). */
+    private fun renderAudioClipIntoBuffer(
+        context: Context,
+        buffer: ShortArray,
+        maxSamples: Int,
+        track: com.sanwolf.daw.model.TrackData,
+        samplesPerBeat: Double
+    ) {
+        val uriStr = track.audioUri
+        if (uriStr.isNullOrBlank()) return
+        val startFrame = (track.audioStartBeat.coerceAtLeast(0.0) * samplesPerBeat).toInt()
+        val framesAvailable = maxSamples - startFrame
+        if (framesAvailable <= 0) return
+        val stereo = StemDecoder.decodeStereo(context, Uri.parse(uriStr), framesAvailable)
+        if (stereo == null) {
+            Log.w(TAG, "Skipping audio clip '${track.name}': couldn't decode $uriStr")
+            return
+        }
+        val gain = track.volume * track.inputGain
+        val panClamped = track.pan.coerceIn(-1f, 1f)
+        val gainL = gain * (if (panClamped > 0f) 1f - panClamped else 1f)
+        val gainR = gain * (if (panClamped < 0f) 1f + panClamped else 1f)
+        val frames = stereo.size / 2
+        for (f in 0 until frames) {
+            val idx = startFrame + f
+            if (idx >= maxSamples) break
+            val l = buffer[idx * 2] + (stereo[f * 2] * gainL * 32767f).toInt()
+            val r = buffer[idx * 2 + 1] + (stereo[f * 2 + 1] * gainR * 32767f).toInt()
+            buffer[idx * 2] = l.coerceIn(-32768, 32767).toShort()
+            buffer[idx * 2 + 1] = r.coerceIn(-32768, 32767).toShort()
+        }
     }
 
     private fun renderDrumIntoBuffer(

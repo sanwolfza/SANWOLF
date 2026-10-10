@@ -90,6 +90,10 @@ class SanwolfAudioEngine(private val context: Context) {
 
     // Media players for imported audio stem playback
     private val stemPlayers = ConcurrentHashMap<String, MediaPlayer>()
+    // MediaPlayer calls are IPC: every transport call on a stem runs on this thread, never on
+    // the audio thread (which only posts "clip start reached" events) and never on the UI thread.
+    private val stemThread = android.os.HandlerThread("SanwolfStems").apply { start() }
+    private val stemHandler = android.os.Handler(stemThread.looper)
 
     // Current project reference
     @Volatile
@@ -230,11 +234,25 @@ class SanwolfAudioEngine(private val context: Context) {
                 lastMaxSteps = maxSteps
                 // Arranger clips can sit anywhere on the 16-bar timeline: extend the loop to the
                 // bar after the last note (capped at 16 bars) so moved clips still play.
+                // Moved patterns and audio clips extend it the same way.
                 noteLoopBeats = try {
                     var end = 0.0
-                    for (t in proj.tracks) for (n in t.notes) {
-                        val e = n.startBeat + n.lengthBeats
-                        if (e > end) end = e
+                    for (t in proj.tracks) {
+                        for (n in t.notes) {
+                            if (!t.isNoteInClip(n)) continue
+                            val e = n.startBeat + n.lengthBeats
+                            if (e > end) end = e
+                        }
+                        if (t.notesClipEndBeat > end && t.notes.isNotEmpty()) end = t.notesClipEndBeat
+                        if (t.patternStartBeat > 0.0) {
+                            val pe = t.patternStartBeat + t.stepCount.coerceIn(1, 64) / 4.0
+                            if (pe > end) end = pe
+                        }
+                        if (t.type == TrackType.AUDIO_IMPORT && t.audioStartBeat > 0.0) {
+                            val durBeats = if (t.audioDurationMs > 0L) t.audioDurationMs * bpm / 60_000.0 else 4.0
+                            val ae = t.audioStartBeat + durBeats
+                            if (ae > end) end = ae
+                        }
                     }
                     (kotlin.math.ceil(end / 4.0) * 4.0).coerceAtMost(MAX_LOOP_BEATS)
                 } catch (e: Exception) {
@@ -242,6 +260,7 @@ class SanwolfAudioEngine(private val context: Context) {
                 }
                 loopBeats = maxOf((maxSteps / 4.0).coerceAtLeast(4.0), noteLoopBeats)
             }
+            val blockStartBeat = currentBeat
             var offset = 0
             while (offset < BUFFER_SIZE) {
                 val n = minOf(SEQ_CHUNK, BUFFER_SIZE - offset)
@@ -262,6 +281,8 @@ class SanwolfAudioEngine(private val context: Context) {
                 if (voiceManager.renderBlock(n, leftBlock, rightBlock, offset)) anyVoiceOutput = true
                 offset += n
             }
+            // Audio clips placed later on the timeline start when the playhead reaches them
+            if (playing && proj != null && isPlaying) checkStemClipStarts(proj, blockStartBeat, currentBeat)
 
             // ---- Master bus: volume, mastering, limiter, meters, PCM ----
             var maxLeft = 0f
@@ -407,8 +428,16 @@ class SanwolfAudioEngine(private val context: Context) {
         for (track in proj.tracks) {
             if (track.muted || (anySolo && !track.solo)) continue
 
-            val effectiveStep = step % track.stepCount.coerceAtLeast(1)
-            if (track.steps.getOrElse(effectiveStep) { false }) {
+            // A pattern placed at a later bar (arranger) is silent before its start, then loops.
+            val trackSteps = track.stepCount.coerceAtLeast(1)
+            val startStep = (track.patternStartBeat * 4.0 + 0.5).toInt()
+            val effectiveStep = if (startStep <= 0) {
+                step % trackSteps
+            } else {
+                val rel = (beat * 4.0).toInt() - startStep
+                if (rel < 0) -1 else rel % trackSteps
+            }
+            if (effectiveStep >= 0 && track.steps.getOrElse(effectiveStep) { false }) {
                 val vel = track.stepVelocities.getOrElse(effectiveStep) { 0.8f } * track.volume
                 if (track.type == TrackType.DRUM_MACHINE) {
                     // The instrument (or a loaded sample) decides the sound; the name is just a label
@@ -419,6 +448,7 @@ class SanwolfAudioEngine(private val context: Context) {
             }
 
             for (note in track.notes) {
+                if (!track.isNoteInClip(note)) continue // cropped by the clip's right edge
                 if (kotlin.math.abs(note.startBeat - beat) < 0.125) {
                     var effectiveVolume = track.volume
                     var effectivePan = track.pan
@@ -569,19 +599,20 @@ class SanwolfAudioEngine(private val context: Context) {
 
     /** Releases every imported-audio stem player (used when a different project is loaded). */
     fun clearStems() {
-        stemPlayers.values.forEach { runCatching { it.release() } }
+        val players = stemPlayers.values.toList()
         stemPlayers.clear()
+        postStem { players.forEach { runCatching { it.release() } } }
     }
 
     fun play() {
         if (!running && !released) initAudioTrack()
         isPlaying = true
-        stemPlayers.values.forEach { if (!it.isPlaying) runCatching { it.start() } }
+        scheduleStemSync(currentBeat, start = true)
     }
 
     fun pause() {
         isPlaying = false
-        stemPlayers.values.forEach { if (it.isPlaying) runCatching { it.pause() } }
+        postStem { stemPlayers.values.forEach { mp -> runCatching { if (mp.isPlaying) mp.pause() } } }
     }
 
     fun stop() {
@@ -589,10 +620,12 @@ class SanwolfAudioEngine(private val context: Context) {
         currentBeat = 0.0
         currentStep = 0
         voiceManager.clear()
-        stemPlayers.values.forEach {
-            runCatching {
-                it.pause()
-                it.seekTo(0)
+        postStem {
+            stemPlayers.values.forEach { mp ->
+                runCatching {
+                    if (mp.isPlaying) mp.pause()
+                    mp.seekTo(0)
+                }.onFailure { Log.w(TAG, "Stem stop failed", it) }
             }
         }
     }
@@ -600,13 +633,18 @@ class SanwolfAudioEngine(private val context: Context) {
     fun seekToBeat(beat: Double) {
         currentBeat = beat
         currentStep = (beat * 4).toInt()
-        val proj = currentProject ?: return
-        val ms = ((beat * 60.0 / proj.bpm) * 1000).toInt()
-        stemPlayers.values.forEach { runCatching { it.seekTo(ms) } }
+        scheduleStemSync(beat, start = isPlaying)
     }
 
-    fun addStemAudio(trackId: String, uri: Uri) {
-        runCatching {
+    /** Re-aligns every stem with the playhead (after an audio clip was moved in the arranger). */
+    fun resyncStems() = scheduleStemSync(currentBeat, start = isPlaying)
+
+    /**
+     * Prepares a stem player for [trackId]. Returns the file's duration in ms (0 if unknown,
+     * -1 if it could not be opened), which callers store in TrackData.audioDurationMs.
+     */
+    fun addStemAudio(trackId: String, uri: Uri): Int {
+        return runCatching {
             val mp = MediaPlayer().apply {
                 setDataSource(context, uri)
                 setAudioAttributes(
@@ -617,8 +655,87 @@ class SanwolfAudioEngine(private val context: Context) {
                 )
                 prepare()
             }
-            stemPlayers[trackId]?.release()
-            stemPlayers[trackId] = mp
+            val old = stemPlayers.put(trackId, mp)
+            if (old != null) postStem { runCatching { old.release() } }
+            mp.duration.coerceAtLeast(0)
+        }.onFailure { Log.e(TAG, "Couldn't open stem audio $uri", it) }.getOrDefault(-1)
+    }
+
+    private fun postStem(action: () -> Unit) {
+        if (!stemThread.isAlive) return
+        stemHandler.post {
+            try {
+                action()
+            } catch (e: Exception) {
+                Log.w(TAG, "Stem transport call failed", e)
+            }
+        }
+    }
+
+    /**
+     * Seeks every stem to where its clip is at [beat]: inside the clip -> seek to the offset
+     * (and start if [start]); before the clip -> paused at 0, the audio thread starts it later.
+     */
+    private fun scheduleStemSync(beat: Double, start: Boolean) {
+        val proj = currentProject ?: return
+        val bpm = proj.bpm.coerceAtLeast(1)
+        val clipStarts = proj.tracks
+            .filter { it.type == TrackType.AUDIO_IMPORT }
+            .map { it.id to it.audioStartBeat.coerceAtLeast(0.0) }
+        postStem {
+            for ((id, clipStart) in clipStarts) {
+                val mp = stemPlayers[id] ?: continue
+                runCatching {
+                    if (beat >= clipStart) {
+                        val ms = ((beat - clipStart) * 60_000.0 / bpm).toInt()
+                        val dur = mp.duration
+                        if (dur <= 0 || ms < dur) {
+                            mp.seekTo(ms)
+                            if (start && isPlaying) {
+                                if (!mp.isPlaying) mp.start()
+                            } else if (mp.isPlaying) {
+                                mp.pause()
+                            }
+                        } else if (mp.isPlaying) {
+                            mp.pause()
+                        }
+                    } else {
+                        if (mp.isPlaying) mp.pause()
+                        mp.seekTo(0)
+                    }
+                }.onFailure { Log.w(TAG, "Stem sync failed for $id", it) }
+            }
+        }
+    }
+
+    /**
+     * Audio thread: posts a start for every audio clip whose start the playhead crossed in
+     * this block (including at the loop wrap). A stem that is still playing keeps running.
+     */
+    private fun checkStemClipStarts(proj: ProjectData, fromBeat: Double, toBeat: Double) {
+        if (stemPlayers.isEmpty()) return
+        try {
+            val wrapped = toBeat < fromBeat
+            val tracks = proj.tracks
+            for (i in 0 until tracks.size) {
+                val t = tracks.getOrNull(i) ?: continue
+                if (t.type != TrackType.AUDIO_IMPORT) continue
+                val s = t.audioStartBeat
+                val crossed = if (wrapped) (s > fromBeat || s <= toBeat) else (s > fromBeat && s <= toBeat)
+                if (crossed) {
+                    val id = t.id
+                    postStem {
+                        val mp = stemPlayers[id]
+                        if (mp != null && isPlaying && !mp.isPlaying) {
+                            mp.seekTo(0)
+                            mp.start()
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Track list edited concurrently on the UI thread: try again next block
+            Log.w(TAG, "Stem clip check skipped", e)
         }
     }
 
@@ -651,8 +768,10 @@ class SanwolfAudioEngine(private val context: Context) {
             release()
         }
         audioTrack = null
-        stemPlayers.values.forEach { runCatching { it.release() } }
+        val players = stemPlayers.values.toList()
         stemPlayers.clear()
+        postStem { players.forEach { runCatching { it.release() } } }
+        stemThread.quitSafely()
         voiceManager.clear()
     }
 

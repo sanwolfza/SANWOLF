@@ -220,8 +220,24 @@ data class TrackData(
     var attackMs: Float = 5f,
     var decayMs: Float = 300f,
     var sustainLevel: Float = 0.4f,
-    var releaseMs: Float = 400f
-)
+    var releaseMs: Float = 400f,
+    // ---- Arranger clip placement (added later). Gson fills missing keys with 0, which is
+    // exactly the old behaviour, so projects saved before these fields existed load unchanged.
+    /** Where an AUDIO_IMPORT clip starts on the timeline (beats). 0 = bar 1. */
+    var audioStartBeat: Double = 0.0,
+    /** Length of the track's audio file in ms (clip width + loop length). 0 = unknown. */
+    var audioDurationMs: Long = 0L,
+    /** Where the step pattern starts on the timeline (beats). The pattern loops from there. */
+    var patternStartBeat: Double = 0.0,
+    /**
+     * Right edge of the notes clip (beats). 0 = automatic (end of the last note). Notes that
+     * start at or after a set edge are cropped: not played and not exported.
+     */
+    var notesClipEndBeat: Double = 0.0
+) {
+    /** True when [note] lies inside the (possibly cropped) notes clip. */
+    fun isNoteInClip(note: MidiNote): Boolean = notesClipEndBeat <= 0.0 || note.startBeat < notesClipEndBeat
+}
 
 data class MasteringConfig(
     var enabled: Boolean = true,

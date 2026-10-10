@@ -154,25 +154,33 @@ private data class ClipHit(val clip: ArrClip, val isResizeEdge: Boolean)
 private val SNAP_OPTIONS = listOf(0.25 to "1/16", 1.0 to "Beat", 4.0 to "Bar")
 
 /**
- * A track's clips: its MIDI notes as one clip (spanning first to last note), its step pattern
- * as a looping pattern clip (one cycle drawn solid, repeats ghosted), or its audio stem.
+ * A track's clips: its MIDI notes as one clip (first note to the clip's right edge, which the
+ * user can drag), its step pattern as a looping pattern clip placed at [TrackData.patternStartBeat]
+ * (one cycle drawn solid, repeats ghosted), or its audio stem at [TrackData.audioStartBeat].
  */
-private fun clipsFor(track: TrackData): List<ArrClip> {
+private fun clipsFor(track: TrackData, bpm: Int): List<ArrClip> {
     val clips = mutableListOf<ArrClip>()
     if (track.type == TrackType.AUDIO_IMPORT) {
         if (track.audioUri != null || track.waveformPeaks != null || track.audioFileName != null) {
-            clips.add(ArrClip(ClipKind.AUDIO, 0.0, 16.0))
+            val start = track.audioStartBeat.coerceIn(0.0, ARR_TOTAL_BEATS - 1.0)
+            // Clip width = file length in beats when known (16 beats otherwise)
+            val lenBeats = if (track.audioDurationMs > 0L) {
+                (track.audioDurationMs * bpm.coerceAtLeast(1) / 60_000.0).coerceAtLeast(0.25)
+            } else 16.0
+            clips.add(ArrClip(ClipKind.AUDIO, start, (start + lenBeats).coerceAtMost(ARR_TOTAL_BEATS.toDouble())))
         }
         return clips
     }
     if (track.notes.isNotEmpty()) {
         val start = floor(track.notes.minOf { it.startBeat })
-        val end = ceil(track.notes.maxOf { it.startBeat + it.lengthBeats }).coerceAtLeast(start + 1.0)
+        val autoEnd = ceil(track.notes.maxOf { it.startBeat + it.lengthBeats }).coerceAtLeast(start + 1.0)
+        val end = if (track.notesClipEndBeat > start) track.notesClipEndBeat else autoEnd
         clips.add(ArrClip(ClipKind.NOTES, start, end))
     }
     val count = track.stepCount.coerceIn(1, 64)
     if ((0 until count).any { track.steps.getOrElse(it) { false } }) {
-        clips.add(ArrClip(ClipKind.PATTERN, 0.0, count / 4.0))
+        val pStart = track.patternStartBeat.coerceIn(0.0, ARR_TOTAL_BEATS - 0.25)
+        clips.add(ArrClip(ClipKind.PATTERN, pStart, pStart + count / 4.0))
     }
     return clips
 }
@@ -308,7 +316,8 @@ fun ArrangerView(
         }
         val beatDelta = snapBeats * (dragDx / beatPx / snapBeats).roundToInt()
         val pointerY = (laneTops[srcIdx] ?: 0f) + dragStartY + dragDy
-        val targetIdx = if (dragResize) srcIdx else trackAtLaneY(pointerY).takeIf { it >= 0 } ?: srcIdx
+        // Resizes and audio clips stay on their own lane
+        val targetIdx = if (dragResize || kind == ClipKind.AUDIO) srcIdx else trackAtLaneY(pointerY).takeIf { it >= 0 } ?: srcIdx
         val dst = project.tracks.getOrNull(targetIdx) ?: src
         val crossTrack = dst !== src
         val compatible = trackGroup(dst) == trackGroup(src)
@@ -317,19 +326,39 @@ fun ArrangerView(
         }
         var changed = false
         when (kind) {
-            ClipKind.NOTES -> if (src.notes.isNotEmpty()) {
+            ClipKind.NOTES -> if (src.notes.isNotEmpty() && dragResize) {
+                // Right edge: crop (notes starting past the edge are muted) or extend with empty space
+                val clip = clipsFor(src, project.bpm).firstOrNull { it.kind == ClipKind.NOTES }
+                if (clip != null) {
+                    val newEnd = (snapBeats * ((clip.endBeat * beatPx + dragDx) / beatPx / snapBeats).roundToInt())
+                        .coerceIn(clip.startBeat + snapBeats, ARR_TOTAL_BEATS.toDouble())
+                    if (newEnd != clip.endBeat) {
+                        src.notesClipEndBeat = newEnd
+                        changed = true
+                    }
+                }
+            } else if (src.notes.isNotEmpty()) {
                 val minStart = src.notes.minOf { it.startBeat }
                 val maxEnd = src.notes.maxOf { it.startBeat + it.lengthBeats }
                 val delta = beatDelta.coerceIn(-minStart, (ARR_TOTAL_BEATS - maxEnd).coerceAtLeast(-minStart))
                 if (crossTrack && compatible) {
-                    val moved = src.notes.toList()
-                    src.notes.clear()
+                    // Only the notes inside the clip move; cropped ones stay behind (still muted)
+                    val moved = src.notes.filter { src.isNoteInClip(it) }
+                    src.notes.removeAll(moved)
                     moved.forEach { it.startBeat += delta }
+                    val dstHadNotes = dst.notes.isNotEmpty()
                     dst.notes.addAll(moved)
+                    dst.notesClipEndBeat = if (!dstHadNotes && src.notesClipEndBeat > 0.0) {
+                        (src.notesClipEndBeat + delta).coerceAtMost(ARR_TOTAL_BEATS.toDouble())
+                    } else 0.0
+                    if (src.notes.isEmpty()) src.notesClipEndBeat = 0.0
                     onSelectTrack(targetIdx)
                     changed = true
                 } else if (delta != 0.0) {
                     src.notes.forEach { it.startBeat += delta }
+                    if (src.notesClipEndBeat > 0.0) {
+                        src.notesClipEndBeat = (src.notesClipEndBeat + delta).coerceIn(0.25, ARR_TOTAL_BEATS.toDouble())
+                    }
                     changed = true
                 }
             }
@@ -356,22 +385,24 @@ fun ArrangerView(
                     onSelectTrack(targetIdx)
                     changed = true
                 } else {
-                    // Patterns loop, so a horizontal move nudges (rotates) the pattern by whole steps
-                    val stepDelta = (beatDelta * 4).roundToInt()
-                    val shift = ((stepDelta % count) + count) % count
-                    if (shift != 0) {
-                        val oldSteps = BooleanArray(count) { src.steps[it] }
-                        val oldVels = FloatArray(count) { src.stepVelocities[it] }
-                        for (i in 0 until count) {
-                            val from = ((i - shift) % count + count) % count
-                            src.steps[i] = oldSteps[from]
-                            src.stepVelocities[i] = oldVels[from]
-                        }
+                    // A horizontal move changes where the pattern starts (it loops from there);
+                    // the steps themselves are untouched.
+                    val oldStart = src.patternStartBeat
+                    val newStart = (oldStart + beatDelta).coerceIn(0.0, (ARR_TOTAL_BEATS - count / 4.0).coerceAtLeast(0.0))
+                    if (newStart != oldStart) {
+                        src.patternStartBeat = newStart
                         changed = true
                     }
                 }
             }
-            ClipKind.AUDIO -> Unit
+            ClipKind.AUDIO -> {
+                val oldStart = src.audioStartBeat
+                val newStart = (oldStart + beatDelta).coerceIn(0.0, ARR_TOTAL_BEATS - 1.0)
+                if (newStart != oldStart) {
+                    src.audioStartBeat = newStart
+                    changed = true
+                }
+            }
         }
         resetDrag()
         if (changed) {
@@ -447,7 +478,7 @@ fun ArrangerView(
                 }
 
                 Text(
-                    text = "Tap a clip to edit · hold to move · pinch to zoom",
+                    text = "Tap a clip to edit · hold to move · hold its right edge to resize · pinch to zoom",
                     fontSize = 11.sp,
                     color = SanwolfTextMuted,
                     maxLines = 1,
@@ -621,7 +652,7 @@ fun ArrangerView(
                                 androidx.compose.runtime.key(track.id) {
                                     val isSelected = index == safeSelectedTrackIndex
                                     val isSilenced = track.muted || (anySolo && !track.solo)
-                                    val clips = clipsFor(track)
+                                    val clips = clipsFor(track, project.bpm)
                                     val isDragSource = dragTrack == index
                                     val dropTarget = if (dragTrack >= 0 && !dragResize) {
                                         trackAtLaneY((laneTops[dragTrack] ?: 0f) + dragStartY + dragDy)
@@ -647,7 +678,7 @@ fun ArrangerView(
                                                         onPress = { tapGuard[0] = false },
                                                         onTap = { pos ->
                                                             if (tapGuard[0]) return@detectTapGestures
-                                                            val hit = hitTestClip(clipsFor(track), pos, size.height.toFloat(), beatPx, 20.dp.toPx())
+                                                            val hit = hitTestClip(clipsFor(track, project.bpm), pos, size.height.toFloat(), beatPx, 20.dp.toPx())
                                                             onSelectTrack(index)
                                                             when (hit?.clip?.kind) {
                                                                 ClipKind.NOTES -> onOpenPianoRoll(index)
@@ -661,17 +692,14 @@ fun ArrangerView(
                                                     detectDragGesturesAfterLongPress(
                                                         onDragStart = { pos ->
                                                             tapGuard[0] = true
-                                                            val hit = hitTestClip(clipsFor(track), pos, size.height.toFloat(), beatPx, 20.dp.toPx())
+                                                            val hit = hitTestClip(clipsFor(track, project.bpm), pos, size.height.toFloat(), beatPx, 20.dp.toPx())
                                                             when {
                                                                 hit == null -> resetDrag()
-                                                                hit.clip.kind == ClipKind.AUDIO -> {
-                                                                    resetDrag()
-                                                                    Toast.makeText(context, "Audio clips start at bar 1 for now; moving them isn't supported yet", Toast.LENGTH_SHORT).show()
-                                                                }
                                                                 else -> {
                                                                     dragTrack = index
                                                                     dragKind = hit.clip.kind
-                                                                    dragResize = hit.isResizeEdge && hit.clip.kind == ClipKind.PATTERN
+                                                                    // Right edge resizes pattern and notes clips; audio clips only move
+                                                                    dragResize = hit.isResizeEdge && hit.clip.kind != ClipKind.AUDIO
                                                                     dragStartY = pos.y
                                                                     dragDx = 0f
                                                                     dragDy = 0f
@@ -877,10 +905,17 @@ private fun LaneCanvas(
                 // Ghost at the snapped destination
                 val snappedBeats = snapBeats * (dragDx / beatPx / snapBeats).roundToInt()
                 if (dragResize) {
-                    val stepPx = beatPx / 4f
-                    val count = track.stepCount.coerceIn(1, 64)
-                    val newCount = (count + ((dragDx / stepPx) / 4f).roundToInt() * 4).coerceIn(4, 64)
-                    val gx1 = (newCount / 4.0 * beatPx).toFloat()
+                    val gx1 = if (clip.kind == ClipKind.PATTERN) {
+                        val stepPx = beatPx / 4f
+                        val count = track.stepCount.coerceIn(1, 64)
+                        val newCount = (count + ((dragDx / stepPx) / 4f).roundToInt() * 4).coerceIn(4, 64)
+                        x0 + (newCount / 4.0 * beatPx).toFloat()
+                    } else {
+                        // Notes clip: snapped right edge
+                        val endBeat = (snapBeats * ((x1 + dragDx) / beatPx / snapBeats).roundToInt())
+                            .coerceIn(clip.startBeat + snapBeats, ARR_TOTAL_BEATS.toDouble())
+                        (endBeat * beatPx).toFloat()
+                    }
                     drawRoundRect(
                         color = SanwolfGold,
                         topLeft = Offset(x0, y0),
@@ -890,10 +925,11 @@ private fun LaneCanvas(
                     )
                 } else {
                     val off = (snappedBeats * beatPx).toFloat()
-                    drawClipBody(track, clip, x0 + off, x1 + off, y0 + dragDy, y1 + dragDy, beatPx, color, alpha = 0.9f)
+                    val dy = if (clip.kind == ClipKind.AUDIO) 0f else dragDy // audio stays on its lane
+                    drawClipBody(track, clip, x0 + off, x1 + off, y0 + dy, y1 + dy, beatPx, color, alpha = 0.9f)
                     drawRoundRect(
                         color = SanwolfGold,
-                        topLeft = Offset(x0 + off, y0 + dragDy),
+                        topLeft = Offset(x0 + off, y0 + dy),
                         size = Size(x1 - x0, y1 - y0),
                         cornerRadius = CornerRadius(6f, 6f),
                         style = Stroke(width = 3f)
@@ -944,22 +980,25 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawClipBody(
             val shift = x0 - (clip.startBeat * beatPx).toFloat()
             for (n in notes) {
                 val nx = (n.startBeat * beatPx).toFloat() + shift
-                val nw = (n.lengthBeats * beatPx).toFloat().coerceAtLeast(3f)
+                if (nx >= x0 + w) continue // cropped by the clip's right edge
+                val nw = (n.lengthBeats * beatPx).toFloat().coerceAtLeast(3f).coerceAtMost(x0 + w - nx)
                 val ny = y0 + 4f + (1f - (n.pitch - lo).toFloat() / span) * (ch - 12f)
                 drawRect(color.copy(alpha = alpha), Offset(nx, ny), Size(nw, 4f))
             }
+            // Resize grip on the right edge
+            drawRect(color.copy(alpha = 0.6f * alpha), Offset(x0 + w - 5f, y0 + ch * 0.3f), Size(3f, ch * 0.4f))
         }
         ClipKind.PATTERN -> {
             val count = track.stepCount.coerceIn(1, 64)
             val stepPx = beatPx / 4f
-            val shift = x0 - (clip.startBeat * beatPx).toFloat()
             for (i in 0 until count) {
                 if (track.steps.getOrElse(i) { false }) {
                     val vel = track.stepVelocities.getOrElse(i) { 0.8f }.coerceIn(0.1f, 1f)
                     val bh = (ch - 8f) * vel
                     drawRect(
                         color = color.copy(alpha = alpha),
-                        topLeft = Offset(i * stepPx + shift + stepPx * 0.2f, y1 - 4f - bh),
+                        // Steps are drawn relative to the clip's (possibly moved) start
+                        topLeft = Offset(x0 + i * stepPx + stepPx * 0.2f, y1 - 4f - bh),
                         size = Size((stepPx * 0.6f).coerceAtLeast(2f), bh)
                     )
                 }

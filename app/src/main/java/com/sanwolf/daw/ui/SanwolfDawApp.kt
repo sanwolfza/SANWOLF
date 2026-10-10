@@ -347,7 +347,7 @@ fun SanwolfDawApp() {
             audioFileName = name
         )
         project.tracks.add(newTrack)
-        audioEngine.addStemAudio(newTrack.id, uri)
+        newTrack.audioDurationMs = audioEngine.addStemAudio(newTrack.id, uri).coerceAtLeast(0).toLong()
         audioEngine.updateStemMuteSolo(project)
         selectedTrackIndex = project.tracks.size - 1
         projectVersion++
@@ -385,7 +385,7 @@ fun SanwolfDawApp() {
                     audioFileName = sound.displayName
                 )
                 project.tracks.add(newTrack)
-                audioEngine.addStemAudio(newTrack.id, uri)
+                newTrack.audioDurationMs = audioEngine.addStemAudio(newTrack.id, uri).coerceAtLeast(0).toLong()
                 audioEngine.updateStemMuteSolo(project)
                 selectedTrackIndex = project.tracks.size - 1
                 projectVersion++
@@ -469,7 +469,8 @@ fun SanwolfDawApp() {
         project.tracks.forEach { t ->
             val uriStr = t.audioUri
             if (t.type == TrackType.AUDIO_IMPORT && !uriStr.isNullOrBlank()) {
-                audioEngine.addStemAudio(t.id, Uri.parse(uriStr))
+                val durMs = audioEngine.addStemAudio(t.id, Uri.parse(uriStr))
+                if (durMs > 0) t.audioDurationMs = durMs.toLong()
             }
         }
         // Drum tracks built from factory one-shots: decode their samples in the background.
@@ -608,7 +609,7 @@ fun SanwolfDawApp() {
                     audioFileName = file.name
                 )
                 project.tracks.add(newTrack)
-                audioEngine.addStemAudio(newTrack.id, fileUri)
+                newTrack.audioDurationMs = audioEngine.addStemAudio(newTrack.id, fileUri).coerceAtLeast(0).toLong()
                 projectVersion++
                 val seconds = recordingEngine.durationMs(file) / 1000.0
                 Toast.makeText(
@@ -940,7 +941,11 @@ fun SanwolfDawApp() {
                                     viewMode = DawViewMode.PIANO_ROLL
                                 }
                             },
-                            onClipsChanged = { projectVersion++ }
+                            onClipsChanged = {
+                                projectVersion++
+                                // An audio clip may have moved: realign the stem players
+                                audioEngine.resyncStems()
+                            }
                         )
                     }
 

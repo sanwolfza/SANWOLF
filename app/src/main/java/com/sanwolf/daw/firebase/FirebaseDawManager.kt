@@ -134,7 +134,11 @@ class FirebaseDawManager(private val context: Context) {
                     "sustainLevel" to t.sustainLevel,
                     "releaseMs" to t.releaseMs,
                     "audioUri" to (t.audioUri ?: ""),
-                    "audioFileName" to (t.audioFileName ?: "")
+                    "audioFileName" to (t.audioFileName ?: ""),
+                    "audioStartBeat" to t.audioStartBeat,
+                    "audioDurationMs" to t.audioDurationMs,
+                    "patternStartBeat" to t.patternStartBeat,
+                    "notesClipEndBeat" to t.notesClipEndBeat
                 )
             }
 
@@ -332,6 +336,10 @@ class FirebaseDawManager(private val context: Context) {
                             track.releaseMs = (rawT["releaseMs"] as? Number)?.toFloat() ?: 200f
                             track.audioUri = rawT["audioUri"] as? String
                             track.audioFileName = rawT["audioFileName"] as? String
+                            track.audioStartBeat = (rawT["audioStartBeat"] as? Number)?.toDouble() ?: 0.0
+                            track.audioDurationMs = (rawT["audioDurationMs"] as? Number)?.toLong() ?: 0L
+                            track.patternStartBeat = (rawT["patternStartBeat"] as? Number)?.toDouble() ?: 0.0
+                            track.notesClipEndBeat = (rawT["notesClipEndBeat"] as? Number)?.toDouble() ?: 0.0
 
                             // Notes
                             val rawNotes = rawT["notes"] as? List<Map<String, Any?>>
@@ -470,7 +478,11 @@ class FirebaseDawManager(private val context: Context) {
                     sustainLevel = t.sustainLevel,
                     releaseMs = t.releaseMs,
                     audioUri = t.audioUri,
-                    audioFileName = t.audioFileName
+                    audioFileName = t.audioFileName,
+                    audioStartBeat = t.audioStartBeat,
+                    audioDurationMs = t.audioDurationMs,
+                    patternStartBeat = t.patternStartBeat,
+                    notesClipEndBeat = t.notesClipEndBeat
                 )
                 System.arraycopy(t.steps, 0, copyTrack.steps, 0, 32)
                 System.arraycopy(t.stepVelocities, 0, copyTrack.stepVelocities, 0, 32)
