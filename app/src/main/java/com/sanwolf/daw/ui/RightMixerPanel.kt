@@ -442,6 +442,8 @@ private fun MasterSection(
     var peakL by remember { mutableFloatStateOf(0f) }
     var peakR by remember { mutableFloatStateOf(0f) }
     var rmsDb by remember { mutableFloatStateOf(-90f) }
+    var lufsM by remember { mutableFloatStateOf(-70f) }
+    var lufsS by remember { mutableFloatStateOf(-70f) }
     var compGr by remember { mutableFloatStateOf(0f) }
     var limGr by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(isVisible) {
@@ -449,6 +451,8 @@ private fun MasterSection(
             peakL = audioEngine.currentPeakLeft
             peakR = audioEngine.currentPeakRight
             rmsDb = audioEngine.masterRmsDb
+            lufsM = audioEngine.masterMomentaryLufs
+            lufsS = audioEngine.masterShortTermLufs
             compGr = audioEngine.compressorReductionDb
             limGr = audioEngine.limiterReductionDb
             delay(60)
@@ -474,13 +478,19 @@ private fun MasterSection(
         PeakMeterRow("L", peakL)
         PeakMeterRow("R", peakR)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            MeterReadout("RMS", if (rmsDb <= -89f) "-inf" else "%.1f dB".format(rmsDb))
+            MeterReadout("LUFS-M", lufsText(lufsM))
+            MeterReadout("LUFS-S", lufsText(lufsS))
+            MeterReadout("RMS", if (rmsDb <= -89f) "-inf" else "%.1f".format(rmsDb))
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             MeterReadout("Comp GR", "%.1f dB".format(compGr))
             MeterReadout("Limiter GR", "%.1f dB".format(limGr))
+            val delta = lufsS - config.targetLufs
+            MeterReadout("vs target", if (lufsS <= -69f) "--" else (if (delta > 0f) "+" else "") + "%.1f LU".format(delta))
         }
         Text(
-            "Loudness shown as RMS (dBFS), not LUFS. Use it as a guide.",
-            fontSize = 11.sp,
+            "BS.1770 K-weighted loudness: momentary 400 ms, short-term 3 s. Integrated LUFS is measured on export.",
+            fontSize = 10.sp,
             color = SanwolfTextMuted
         )
     }
@@ -579,6 +589,8 @@ private fun MasterSection(
         )
     }
 }
+
+private fun lufsText(v: Float): String = if (v <= -69.5f) "-inf" else "%.1f".format(v)
 
 private fun dbText(v: Float): String = (if (v > 0.05f) "+" else "") + "%.1f dB".format(v)
 

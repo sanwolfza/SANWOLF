@@ -19,6 +19,11 @@ import kotlin.math.sin
 object WavExporter {
     private const val TAG = "WavExporter"
 
+    /** Integrated loudness (ITU-R BS.1770, gated) of the most recent export, in LUFS. */
+    @Volatile
+    var lastExportIntegratedLufs: Float = LoudnessMeter.SILENCE_LUFS
+        private set
+
     fun exportProjectToWav(context: Context, project: ProjectData, numBars: Int = 4): File {
         val sampleRate = 44100
         val channels = 2
@@ -80,6 +85,8 @@ object WavExporter {
         }
 
         applyMasteringToBuffer(pcmData, project)
+        lastExportIntegratedLufs = measureIntegratedLufs(pcmData)
+        Log.i(TAG, "Export integrated loudness: %.1f LUFS".format(lastExportIntegratedLufs))
 
         val fileName = "${project.title.replace(" ", "_")}_${System.currentTimeMillis()}.wav"
         val outFile = File(context.cacheDir, fileName)
@@ -189,6 +196,16 @@ object WavExporter {
             buffer[sIdx * 2 + 1] = (curR + (shortVal * panR).toInt()).coerceIn(-32768, 32767).toShort()
             sIdx++
         }
+    }
+
+    /** Gated integrated loudness (BS.1770) of an interleaved stereo 16-bit buffer. */
+    fun measureIntegratedLufs(buffer: ShortArray): Float {
+        val meter = LoudnessMeter(44100, trackIntegrated = true)
+        val frames = buffer.size / 2
+        for (i in 0 until frames) {
+            meter.process(buffer[i * 2] / 32768f, buffer[i * 2 + 1] / 32768f)
+        }
+        return meter.integratedLufs()
     }
 
     /** Runs the same master bus as live playback (see [MasterBusProcessor]) over the render. */

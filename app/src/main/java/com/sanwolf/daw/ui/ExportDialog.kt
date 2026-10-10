@@ -282,20 +282,31 @@ fun ExportDialog(
                         isRendering = true
                         statusText = "Rendering export..."
                         scope.launch {
-                            val file = withContext(Dispatchers.IO) {
-                                if (format == ExportFormat.WAV) {
-                                    WavExporter.exportProjectToWav(context, project, barCount)
-                                } else {
-                                    if (midiScope == MidiScope.CURRENT_SEQUENCE && activeTrack != null) {
-                                        MidiExporter.exportTrackSequenceToMidi(context, activeTrack, project.bpm, project.title)
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    if (format == ExportFormat.WAV) {
+                                        WavExporter.exportProjectToWav(context, project, barCount)
                                     } else {
-                                        MidiExporter.exportProjectToMidi(context, project)
+                                        if (midiScope == MidiScope.CURRENT_SEQUENCE && activeTrack != null) {
+                                            MidiExporter.exportTrackSequenceToMidi(context, activeTrack, project.bpm, project.title)
+                                        } else {
+                                            MidiExporter.exportProjectToMidi(context, project)
+                                        }
                                     }
                                 }
                             }
-                            exportedFile = file
                             isRendering = false
-                            statusText = "Rendered '${file.name}' (${file.length() / 1024} KB). Opening Share Sheet..."
+                            val file = result.getOrElse { err ->
+                                android.util.Log.e("ExportDialog", "Export failed", err)
+                                statusText = "Export failed: ${err.message ?: err.javaClass.simpleName}"
+                                android.widget.Toast.makeText(context, "Export failed: ${err.message ?: "unknown error"}", android.widget.Toast.LENGTH_LONG).show()
+                                return@launch
+                            }
+                            exportedFile = file
+                            val loudness = if (format == ExportFormat.WAV) {
+                                " · %.1f LUFS integrated".format(WavExporter.lastExportIntegratedLufs)
+                            } else ""
+                            statusText = "Rendered '${file.name}' (${file.length() / 1024} KB)$loudness. Opening Share Sheet..."
 
                             // Launch Share Intent
                             val shareIntent = if (format == ExportFormat.WAV) {
@@ -303,7 +314,12 @@ fun ExportDialog(
                             } else {
                                 MidiExporter.createShareIntent(context, file, "Share SANWOLF MIDI: ${file.name}")
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share SANWOLF Export"))
+                            runCatching {
+                                context.startActivity(Intent.createChooser(shareIntent, "Share SANWOLF Export"))
+                            }.onFailure { err ->
+                                android.util.Log.e("ExportDialog", "Share sheet failed", err)
+                                android.widget.Toast.makeText(context, "Couldn't open the share sheet", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                     },
                     enabled = !isRendering,

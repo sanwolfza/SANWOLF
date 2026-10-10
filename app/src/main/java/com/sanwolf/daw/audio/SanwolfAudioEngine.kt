@@ -86,6 +86,14 @@ class SanwolfAudioEngine(private val context: Context) {
     /** Short-term RMS of the master output in dBFS (an RMS reading, not LUFS). */
     @Volatile
     var masterRmsDb = -90f
+    /** ITU-R BS.1770 K-weighted loudness of the master output (audio thread only writes it). */
+    private val loudnessMeter = LoudnessMeter(SAMPLE_RATE)
+    /** Momentary loudness (400 ms window), LUFS. */
+    @Volatile
+    var masterMomentaryLufs = LoudnessMeter.SILENCE_LUFS
+    /** Short-term loudness (3 s window), LUFS. */
+    @Volatile
+    var masterShortTermLufs = LoudnessMeter.SILENCE_LUFS
     val voiceManager = VoiceManager()
 
     // Media players for imported audio stem playback
@@ -202,6 +210,9 @@ class SanwolfAudioEngine(private val context: Context) {
             if (!playing && outputSilent && voiceManager.isIdle()) {
                 // Nothing is sounding: hand the device silence and let the meters fall
                 decayMeters()
+                loudnessMeter.addSilence(BUFFER_SIZE)
+                masterMomentaryLufs = loudnessMeter.momentaryLufs
+                masterShortTermLufs = loudnessMeter.shortTermLufs
                 writeFully(track, silence)
                 continue
             }
@@ -297,6 +308,7 @@ class SanwolfAudioEngine(private val context: Context) {
                 masterBus.process(leftBlock[i], rightBlock[i], limited)
                 val sampleL = limited[0]
                 val sampleR = limited[1]
+                loudnessMeter.process(sampleL, sampleR)
 
                 sumLR += sampleL * sampleR
                 sumLL += sampleL * sampleL
@@ -346,6 +358,8 @@ class SanwolfAudioEngine(private val context: Context) {
             val meanSquare = (sumLL + sumRR) / (2f * BUFFER_SIZE)
             val rmsDb = if (meanSquare > 1e-9f) (10f * kotlin.math.log10(meanSquare)) else -90f
             masterRmsDb = masterRmsDb * 0.8f + rmsDb * 0.2f
+            masterMomentaryLufs = loudnessMeter.momentaryLufs
+            masterShortTermLufs = loudnessMeter.shortTermLufs
             currentPeakLeft = currentPeakLeft * 0.7f + maxLeft * 0.3f
             currentPeakRight = currentPeakRight * 0.7f + maxRight * 0.3f
 
