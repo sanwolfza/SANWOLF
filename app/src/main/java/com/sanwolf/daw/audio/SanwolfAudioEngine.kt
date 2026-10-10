@@ -103,9 +103,21 @@ class SanwolfAudioEngine(private val context: Context) {
     private val stemThread = android.os.HandlerThread("SanwolfStems").apply { start() }
     private val stemHandler = android.os.Handler(stemThread.looper)
 
-    // Current project reference
+    // Current project reference. Setting it also pre-warms the project's instruments and
+    // decodes its drum samples on a background thread, so the first hit on the audio thread
+    // never has to resolve an instrument or fall back to a synth voice ("first-play glitch").
     @Volatile
     var currentProject: ProjectData? = null
+        set(value) {
+            field = value
+            if (value != null) requestPrewarm(value)
+        }
+
+    private val prewarmExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "SanwolfPrewarm").apply { priority = Thread.NORM_PRIORITY - 1 }
+    }
+    /** Instrument/drum keys already warmed (prewarm thread only). */
+    private val warmedKeys = HashSet<String>()
 
     // Metronome (quarter-note click while playing; accent on the first beat of each bar)
     @Volatile
@@ -601,6 +613,53 @@ class SanwolfAudioEngine(private val context: Context) {
         }
     }
 
+    /**
+     * Snapshots what the project's tracks need (on the caller's thread, which owns the project)
+     * and warms it on [prewarmExecutor]: resolves instrument definitions (InstrumentLibrary's
+     * resolve cache), runs each voice type briefly (class loading / JIT) and decodes drum samples.
+     */
+    private fun requestPrewarm(project: ProjectData) {
+        if (released) return
+        val jobs = try {
+            project.tracks.map { t ->
+                Triple(t.type, t.synthPresetName.ifEmpty { t.name }, t.audioUri)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Prewarm snapshot failed", e)
+            return
+        }
+        val sampleUris = jobs.filter { it.first == TrackType.DRUM_MACHINE && !it.third.isNullOrBlank() }
+            .mapNotNull { it.third }.toSet()
+        PcmSampleCache.setPinned(sampleUris)
+        runCatching {
+            prewarmExecutor.execute {
+                for ((type, instrument, uri) in jobs) {
+                    try {
+                        if (type == TrackType.AUDIO_IMPORT) continue
+                        if (type == TrackType.DRUM_MACHINE && !uri.isNullOrBlank()) {
+                            PcmSampleCache.load(uri)
+                        }
+                        val key = "${type.name}|$instrument"
+                        if (!warmedKeys.add(key)) continue
+                        val def = InstrumentLibrary.getById(instrument)
+                        val voice: ActiveVoice = if (type == TrackType.DRUM_MACHINE) {
+                            InstrumentVoices.createDrumVoice(def.drumType.ifEmpty { def.id }, 0f, 0f)
+                        } else {
+                            InstrumentVoices.createVoiceForDefinition(def, 60, 0.05f, 0f, 0f)
+                        }
+                        var n = 0
+                        while (n < 512 && !voice.isFinished) {
+                            voice.nextSample()
+                            n++
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Prewarm failed for $instrument", e)
+                    }
+                }
+            }
+        }.onFailure { Log.w(TAG, "Prewarm not scheduled", it) }
+    }
+
     /** Decodes a drum track's sample so the audio thread can play it. Blocking: call off the main thread. */
     fun preloadDrumSample(uri: String): Boolean = PcmSampleCache.load(uri) != null
 
@@ -786,6 +845,7 @@ class SanwolfAudioEngine(private val context: Context) {
         stemPlayers.clear()
         postStem { players.forEach { runCatching { it.release() } } }
         stemThread.quitSafely()
+        prewarmExecutor.shutdownNow()
         voiceManager.clear()
     }
 

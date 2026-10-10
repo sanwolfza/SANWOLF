@@ -16,9 +16,43 @@ object PcmSampleCache {
     /** Longest one-shot we decode for a drum track (seconds at 44.1 kHz). */
     private const val MAX_SECONDS = 12
 
+    /** Soft budget for decoded audio: 8M floats ≈ 32 MB (≈ 3 min of mono 44.1 kHz). */
+    private const val MAX_TOTAL_FLOATS = 8L * 1024 * 1024
+
     private val cache = ConcurrentHashMap<String, FloatArray>()
+    private val totalFloats = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** URIs the current project uses; never evicted by [trim]. */
+    @Volatile
+    private var pinned: Set<String> = emptySet()
 
     fun get(uri: String?): FloatArray? = if (uri.isNullOrBlank()) null else cache[uri]
+
+    /** Marks the samples the open project needs (everything else may be evicted). */
+    fun setPinned(uris: Set<String>) {
+        pinned = uris
+    }
+
+    /** Drops every decoded sample the current project doesn't use (low memory / project switch). */
+    fun trim() {
+        val keep = pinned
+        val it = cache.entries.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            if (e.key !in keep) {
+                totalFloats.addAndGet(-e.value.size.toLong())
+                it.remove()
+            }
+        }
+    }
+
+    /** Drops everything (the audio thread falls back to synth voices until reloaded). */
+    fun clear() {
+        cache.clear()
+        totalFloats.set(0)
+    }
+
+    fun sizeInFloats(): Long = totalFloats.get()
 
     /** Decodes [uri] (a file:// or plain path to a PCM WAV) into mono floats at 44.1 kHz. Blocking. */
     fun load(uri: String): FloatArray? {
@@ -29,7 +63,12 @@ object PcmSampleCache {
         val pcm = runCatching { decodeWav(file.readBytes()) }
             .onFailure { Log.e(TAG, "Couldn't decode $uri", it) }
             .getOrNull() ?: return null
-        cache[uri] = pcm
+        val previous = cache.put(uri, pcm)
+        totalFloats.addAndGet(pcm.size.toLong() - (previous?.size ?: 0))
+        if (totalFloats.get() > MAX_TOTAL_FLOATS) {
+            Log.i(TAG, "Sample cache over budget (${totalFloats.get()} floats): evicting unused samples")
+            trim()
+        }
         return pcm
     }
 

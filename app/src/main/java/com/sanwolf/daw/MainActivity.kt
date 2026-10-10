@@ -57,6 +57,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // Drop decoded samples the open project doesn't use when the system is short on memory
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            com.sanwolf.daw.audio.PcmSampleCache.trim()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         applyImmersiveMode()
