@@ -14,7 +14,13 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.sanwolf.daw.ui.SanwolfDawApp
+import com.sanwolf.daw.ui.theme.LocalUiSizeState
 import com.sanwolf.daw.ui.theme.MyApplicationTheme
+import com.sanwolf.daw.ui.theme.ProvideUiScale
+import com.sanwolf.daw.ui.theme.UiSize
+import com.sanwolf.daw.ui.theme.UiSizeState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 
 class MainActivity : ComponentActivity() {
 
@@ -37,9 +43,16 @@ class MainActivity : ComponentActivity() {
 
         applyImmersiveMode()
 
+        val appContext = applicationContext
         setContent {
-            MyApplicationTheme {
-                SanwolfDawApp()
+            // Global UI size (Settings > Display > UI size), persisted in SharedPreferences.
+            val uiSizeState = remember { UiSizeState(UiSize.load(appContext)) { UiSize.save(appContext, it) } }
+            CompositionLocalProvider(LocalUiSizeState provides uiSizeState) {
+                ProvideUiScale(scale = uiSizeState.size.scale) {
+                    MyApplicationTheme {
+                        SanwolfDawApp()
+                    }
+                }
             }
         }
     }

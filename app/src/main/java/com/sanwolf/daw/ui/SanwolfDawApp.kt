@@ -1302,7 +1302,7 @@ fun SanwolfDawApp() {
         }
 
         if (showMasterMixer) {
-            Dialog(
+            ScaledDialog(
                 onDismissRequest = { showMasterMixer = false },
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
             ) {

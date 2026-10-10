@@ -124,7 +124,7 @@ fun LivePianoBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(16.dp)
+                .height(12.dp)
                 .background(SanwolfPanelElevated)
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
@@ -150,8 +150,8 @@ fun LivePianoBar(
         ) {
             Box(
                 modifier = Modifier
-                    .width(48.dp)
-                    .height(4.dp)
+                    .width(40.dp)
+                    .height(3.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(SanwolfTextMuted)
             )
@@ -161,9 +161,9 @@ fun LivePianoBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp)
+                .height(Dimens.pianoHeaderHeight)
                 .background(SanwolfPanel)
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -229,7 +229,7 @@ fun LivePianoBar(
                             if (baseOctave > 1) baseOctave--
                             prefs.edit().putInt(PREF_PIANO_OCTAVE, baseOctave).apply()
                         },
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(Icons.Default.Remove, contentDescription = "Octave Down", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
                     }
@@ -238,7 +238,7 @@ fun LivePianoBar(
                             if (baseOctave < 6) baseOctave++
                             prefs.edit().putInt(PREF_PIANO_OCTAVE, baseOctave).apply()
                         },
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Octave Up", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
                     }
@@ -260,7 +260,7 @@ fun LivePianoBar(
                                 prefs.edit().putInt(PREF_PIANO_OCTAVES, octaveCount).apply()
                             }
                         },
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(Icons.Default.Remove, contentDescription = "Fewer octaves (wider keys)", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
                     }
@@ -272,7 +272,7 @@ fun LivePianoBar(
                                 prefs.edit().putInt(PREF_PIANO_OCTAVES, octaveCount).apply()
                             }
                         },
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "More octaves (narrower keys)", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
                     }
@@ -315,7 +315,7 @@ fun LivePianoBar(
                             val nextBpm = if (bpm >= 150) 110 else bpm + 5
                             onBpmChange(nextBpm)
                         }
-                        .heightIn(min = 40.dp)
+                        .heightIn(min = 32.dp)
                         .semantics { contentDescription = "Tempo $bpm BPM. Tap to raise by 5." }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -328,7 +328,7 @@ fun LivePianoBar(
                     )
                     Text(
                         text = "$bpm +5",
-                        fontSize = 14.sp,
+                        fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
                         color = SanwolfGold
@@ -337,7 +337,7 @@ fun LivePianoBar(
 
                 IconButton(
                     onClick = { snapPianoTo(if (pianoSize == PianoSize.COLLAPSED) lastOpenSize else PianoSize.COLLAPSED) },
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = if (pianoSize != PianoSize.COLLAPSED) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
@@ -473,10 +473,11 @@ private fun PianoKey(
 
 /** Snap sizes for the piano dock (total height incl. handle + header). */
 private enum class PianoSize(val heightDp: Float, val label: String) {
-    COLLAPSED(68f, "collapsed"),
-    COMPACT(140f, "compact"),
-    MEDIUM(210f, "medium"),
-    LARGE(300f, "large");
+    // COLLAPSED = resize handle (12dp) + header (Dimens.pianoHeaderHeight, 44dp)
+    COLLAPSED(56f, "collapsed"),
+    COMPACT(120f, "compact"),
+    MEDIUM(176f, "medium"),
+    LARGE(260f, "large");
 
     companion object {
         fun nearest(h: Float): PianoSize = values().minByOrNull { kotlin.math.abs(it.heightDp - h) } ?: MEDIUM
@@ -500,19 +501,19 @@ private fun PianoBarTransportButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier
-            .heightIn(min = 44.dp)
+            .heightIn(min = 32.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (highlighted) tint.copy(alpha = 0.25f) else SanwolfPanelElevated)
             .border(1.dp, if (highlighted) tint else SanwolfPanelBorder, RoundedCornerShape(6.dp))
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) { this.contentDescription = contentDescription }
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = tint,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(18.dp)
         )
         Text(
             text = label,

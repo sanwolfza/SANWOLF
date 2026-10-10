@@ -173,7 +173,7 @@ private fun FactoryWavLibraryDialog(
         ).groupBy { it.category }.toList()
     }
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
@@ -402,7 +402,7 @@ private fun PlaceholderSampleDialog(
         }
     }
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

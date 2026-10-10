@@ -46,7 +46,7 @@ fun CoProducerArrangerOverlay(
     var includeSubDrop by remember { mutableStateOf(true) }
     var includeRisers by remember { mutableStateOf(true) }
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

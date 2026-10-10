@@ -3,13 +3,17 @@ package com.sanwolf.daw.ui.sidebar
 import android.media.MediaPlayer
 import android.net.Uri
 import android.text.format.DateUtils
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -114,7 +118,7 @@ fun SampleBrowserSection(
     val source = runCatching { SampleSource.valueOf(sourceName) }.getOrDefault(SampleSource.FACTORY)
     var query by rememberSaveable { mutableStateOf("") }
     var previewingKey by remember { mutableStateOf<String?>(null) }
-    var items by remember { mutableStateOf<List<BrowserItem>>(emptyList()) }
+    var allItems by remember { mutableStateOf<List<BrowserItem>>(emptyList()) }
     var genreKey by rememberSaveable { mutableStateOf(FactoryGenre.AFRO_HOUSE.key) }
     // Real factory WAVs currently previewing (shared player, also used by the full manager dialog)
     val factoryPreviewId = FactoryLibrary.previewingId.value
@@ -140,7 +144,7 @@ fun SampleBrowserSection(
         .map { Triple(it.id, it.audioFileName ?: it.name, it.audioUri!!) }
 
     LaunchedEffect(source, refreshKey, importedTracks.size) {
-        items = withContext(Dispatchers.IO) {
+        allItems = withContext(Dispatchers.IO) {
             runCatching {
                 when (source) {
                     SampleSource.FACTORY -> {
@@ -219,11 +223,11 @@ fun SampleBrowserSection(
         }
     }
 
-    val isFactoryWav = source == SampleSource.FACTORY && items.any { it.sound != null }
+    val isFactoryWav = source == SampleSource.FACTORY && allItems.any { it.sound != null }
     val filtered = if (isFactoryWav) {
         // Factory: genre chip filters; a search looks across every genre by sound name.
         val q = query.trim()
-        items.filter { item ->
+        allItems.filter { item ->
             val snd = item.sound ?: return@filter false
             if (q.isNotEmpty()) snd.displayName.contains(q, ignoreCase = true)
             else genreKey == ALL_GENRES || snd.genre == genreKey
@@ -236,156 +240,199 @@ fun SampleBrowserSection(
         ).map { item ->
             if (q.isNotEmpty() || genreKey == ALL_GENRES) item.copy(detail = item.sound!!.detail(includeGenre = true)) else item
         }
-    } else if (query.isBlank()) items else items.filter {
+    } else if (query.isBlank()) allItems else allItems.filter {
         it.name.contains(query, ignoreCase = true) || it.detail.contains(query, ignoreCase = true)
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SidebarActionRow(
-            label = "Import audio file…",
-            icon = Icons.Default.FileUpload,
-            tint = SanwolfLime,
-            subtitle = "WAV / MP3 from your device, added as a track",
-            onClick = onImportAudio
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            SampleSource.values().forEach { s ->
-                SidebarChip(
-                    label = s.label,
-                    selected = s == source,
-                    onClick = {
-                        stopPreview()
-                        sourceName = s.name
-                    }
-                )
+    // Flattened rows (category headers + samples) for the lazy list.
+    val rows: List<BrowserRow> = remember(filtered, isFactoryWav) {
+        val out = ArrayList<BrowserRow>(filtered.size + 16)
+        var lastCategory: String? = null
+        filtered.forEach { item ->
+            if (isFactoryWav && item.category != lastCategory) {
+                lastCategory = item.category
+                out.add(BrowserRow.Header("hdr:${item.category}:${out.size}", (item.category ?: "").uppercase()))
             }
+            out.add(BrowserRow.Sample(item))
+        }
+        out
+    }
+
+    // Factory previews are one-shot synth hits: clear the "playing" state after a moment.
+    LaunchedEffect(previewingKey) {
+        val k = previewingKey
+        if (k != null && k.startsWith("factory:")) {
+            delay(700)
+            if (previewingKey == k) previewingKey = null
+        }
+    }
+
+    // A lazy, keyed list: only the visible rows are composed (the factory pack has ~190 sounds).
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        item(key = "import") {
+            SidebarActionRow(
+                label = "Import audio file…",
+                icon = Icons.Default.FileUpload,
+                tint = SanwolfLime,
+                subtitle = "WAV / MP3 from your device, added as a track",
+                onClick = onImportAudio
+            )
         }
 
-        if (isFactoryWav) {
+        item(key = "sources") {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                FactoryGenre.values().forEach { g ->
+                SampleSource.values().forEach { s ->
                     SidebarChip(
-                        label = g.label,
-                        selected = genreKey == g.key && query.isBlank(),
-                        onClick = { genreKey = g.key; query = "" }
+                        label = s.label,
+                        selected = s == source,
+                        onClick = {
+                            stopPreview()
+                            sourceName = s.name
+                        }
                     )
                 }
-                SidebarChip(
-                    label = "All genres",
-                    selected = genreKey == ALL_GENRES && query.isBlank(),
-                    onClick = { genreKey = ALL_GENRES; query = "" }
-                )
             }
         }
 
-        SanwolfTextField(
-            value = query,
-            onValueChange = { query = it },
-            singleLine = true,
-            placeholder = { Text("Search ${source.label.lowercase()}", fontSize = 13.sp) },
-            modifier = Modifier.fillMaxWidth()
-        )
+        if (isFactoryWav) {
+            item(key = "genres") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FactoryGenre.values().forEach { g ->
+                        SidebarChip(
+                            label = g.label,
+                            selected = genreKey == g.key && query.isBlank(),
+                            onClick = { genreKey = g.key; query = "" }
+                        )
+                    }
+                    SidebarChip(
+                        label = "All genres",
+                        selected = genreKey == ALL_GENRES && query.isBlank(),
+                        onClick = { genreKey = ALL_GENRES; query = "" }
+                    )
+                }
+            }
+        }
 
-        if (filtered.isEmpty()) {
-            SidebarEmptyState(
-                when {
-                    query.isNotBlank() -> "Nothing matches \"$query\"."
-                    source == SampleSource.MY_SAMPLES -> "No saved samples yet — tap Import audio file to add one."
-                    source == SampleSource.RECORDINGS -> "No mic takes yet — hit Record to capture one."
-                    source == SampleSource.IMPORTED -> "No imported audio in this project yet."
-                    else -> "No samples."
-                }
+        item(key = "search") {
+            SanwolfTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                placeholder = { Text("Search ${source.label.lowercase()}", fontSize = 12.sp) },
+                modifier = Modifier.fillMaxWidth()
             )
-        } else {
-            var lastCategory: String? = null
-            filtered.forEach { item ->
-                if (isFactoryWav && item.category != lastCategory) {
-                    lastCategory = item.category
-                    SidebarSectionHeader(title = (item.category ?: "").uppercase())
-                }
-                val snd = item.sound
-                val isPreviewing = if (snd != null) factoryPreviewId == snd.id else previewingKey == item.key
-                SampleRow(
-                    item = item,
-                    isPreviewing = isPreviewing,
-                    onAddToSteps = if (snd != null && snd.isDrumOneShot) {
-                        { stopPreview(); onAddFactorySoundToSteps(snd) }
-                    } else null,
-                    onTogglePreview = {
-                        if (isPreviewing) {
-                            stopPreview()
-                        } else {
-                            stopPreview()
-                            val f = item.factory
-                            val u = item.uri
-                            if (snd != null) {
-                                if (!FactoryLibrary.preview(context, snd)) {
-                                    // Asset missing/unreadable: fall back to the synth stand-in.
-                                    onPreviewFactorySynthFallback(snd)
-                                }
-                            } else if (f != null) {
-                                previewingKey = item.key
-                                onPreviewFactory(f)
-                            } else if (u != null) {
-                                val mp = runCatching {
-                                    MediaPlayer().apply {
-                                        setDataSource(context, u)
-                                        setOnCompletionListener { if (previewingKey == item.key) stopPreview() }
-                                        prepare()
-                                        start()
-                                    }
-                                }.getOrNull()
-                                if (mp != null) {
-                                    player[0] = mp
-                                    previewingKey = item.key
-                                } else {
-                                    android.widget.Toast.makeText(context, "Can't play this file", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                    },
-                    onAdd = {
-                        stopPreview()
-                        val f = item.factory
-                        val u = item.uri
-                        when {
-                            snd != null -> onAddFactorySound(snd)
-                            f != null -> onAddFactorySample(f)
-                            u != null -> onAddAudioFile(item.name, u)
-                        }
+        }
+
+        if (rows.isEmpty()) {
+            item(key = "empty") {
+                SidebarEmptyState(
+                    when {
+                        query.isNotBlank() -> "Nothing matches \"$query\"."
+                        source == SampleSource.MY_SAMPLES -> "No saved samples yet — tap Import audio file to add one."
+                        source == SampleSource.RECORDINGS -> "No mic takes yet — hit Record to capture one."
+                        source == SampleSource.IMPORTED -> "No imported audio in this project yet."
+                        else -> "No samples."
                     }
                 )
             }
-        }
-
-        // Factory previews are one-shot synth hits: clear the "playing" state after a moment.
-        LaunchedEffect(previewingKey) {
-            val k = previewingKey
-            if (k != null && k.startsWith("factory:")) {
-                delay(700)
-                if (previewingKey == k) previewingKey = null
+        } else {
+            items(
+                items = rows,
+                key = { it.key },
+                contentType = { if (it is BrowserRow.Header) 0 else 1 }
+            ) { row ->
+                when (row) {
+                    is BrowserRow.Header -> SidebarSectionHeader(title = row.title)
+                    is BrowserRow.Sample -> {
+                        val item = row.item
+                        val snd = item.sound
+                        val isPreviewing = if (snd != null) factoryPreviewId == snd.id else previewingKey == item.key
+                        SampleRow(
+                            item = item,
+                            isPreviewing = isPreviewing,
+                            onAddToSteps = if (snd != null && snd.isDrumOneShot) {
+                                { stopPreview(); onAddFactorySoundToSteps(snd) }
+                            } else null,
+                            onTogglePreview = {
+                                if (isPreviewing) {
+                                    stopPreview()
+                                } else {
+                                    stopPreview()
+                                    val f = item.factory
+                                    val u = item.uri
+                                    if (snd != null) {
+                                        if (!FactoryLibrary.preview(context, snd)) {
+                                            // Asset missing/unreadable: fall back to the synth stand-in.
+                                            onPreviewFactorySynthFallback(snd)
+                                        }
+                                    } else if (f != null) {
+                                        previewingKey = item.key
+                                        onPreviewFactory(f)
+                                    } else if (u != null) {
+                                        val mp = runCatching {
+                                            MediaPlayer().apply {
+                                                setDataSource(context, u)
+                                                setOnCompletionListener { if (previewingKey == item.key) stopPreview() }
+                                                prepare()
+                                                start()
+                                            }
+                                        }.onFailure { Log.e(TAG, "Preview failed for ${item.name}", it) }.getOrNull()
+                                        if (mp != null) {
+                                            player[0] = mp
+                                            previewingKey = item.key
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Can't play this file", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            },
+                            onAdd = {
+                                stopPreview()
+                                val f = item.factory
+                                val u = item.uri
+                                when {
+                                    snd != null -> onAddFactorySound(snd)
+                                    f != null -> onAddFactorySample(f)
+                                    u != null -> onAddAudioFile(item.name, u)
+                                }
+                            }
+                        )
+                    }
+                }
             }
         }
 
-        SidebarActionRow(
-            label = "Full sample manager",
-            icon = Icons.Default.LibraryMusic,
-            tint = SanwolfGold,
-            subtitle = "Bigger browser with every genre",
-            onClick = onOpenFullSampleManager
-        )
+        item(key = "manager") {
+            SidebarActionRow(
+                label = "Full sample manager",
+                icon = Icons.Default.LibraryMusic,
+                tint = SanwolfGold,
+                subtitle = "Bigger browser with every genre",
+                onClick = onOpenFullSampleManager
+            )
+        }
     }
+}
+
+private const val TAG = "SampleBrowser"
+
+/** Row model for the lazy sample list. */
+private sealed class BrowserRow(val key: String) {
+    class Header(key: String, val title: String) : BrowserRow(key)
+    class Sample(val item: BrowserItem) : BrowserRow(item.key)
 }
 
 @Composable
@@ -399,7 +446,7 @@ private fun SampleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .heightIn(min = 38.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (isPreviewing) item.color.copy(alpha = 0.14f) else SanwolfPanelElevated)
             .padding(start = 2.dp, end = 2.dp),
@@ -408,12 +455,12 @@ private fun SampleRow(
         IconButton(
             onClick = onTogglePreview,
             modifier = Modifier
-                .size(48.dp)
+                .size(36.dp)
                 .semantics { contentDescription = if (isPreviewing) "Stop preview of ${item.name}" else "Preview ${item.name}" }
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
                     .background(item.color.copy(alpha = 0.25f)),
                 contentAlignment = Alignment.Center
@@ -448,7 +495,7 @@ private fun SampleRow(
             IconButton(
                 onClick = onAddToSteps,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(36.dp)
                     .semantics { contentDescription = "Add ${item.name} as a step-sequencer drum track" }
             ) {
                 Icon(Icons.Default.GridOn, contentDescription = null, tint = SanwolfCyan, modifier = Modifier.size(20.dp))
@@ -457,7 +504,7 @@ private fun SampleRow(
         IconButton(
             onClick = onAdd,
             modifier = Modifier
-                .size(48.dp)
+                .size(36.dp)
                 .semantics { contentDescription = "Add ${item.name} as a new track" }
         ) {
             Icon(Icons.Default.Add, contentDescription = null, tint = SanwolfLime)

@@ -44,7 +44,7 @@ fun AiPatternSuggestionsDialog(
         AiArrangementAnalyzer.analyzeAndSuggest(project, selectedGenre)
     }
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

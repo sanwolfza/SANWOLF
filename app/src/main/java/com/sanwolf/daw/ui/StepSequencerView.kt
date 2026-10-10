@@ -320,7 +320,7 @@ private fun SequencerTrackRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp)
+            .height(42.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(SanwolfPanel)
             .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(6.dp))

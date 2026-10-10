@@ -136,7 +136,7 @@ fun SongInfoSection(
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(
                 onClick = { applyBpm(bpm - 1) },
-                modifier = Modifier.size(48.dp).semantics { contentDescription = "Decrease tempo" }
+                modifier = Modifier.size(40.dp).semantics { contentDescription = "Decrease tempo" }
             ) { Icon(Icons.Default.Remove, contentDescription = null, tint = SanwolfTextPrimary) }
             SanwolfTextField(
                 value = bpmText,
@@ -155,7 +155,7 @@ fun SongInfoSection(
             )
             IconButton(
                 onClick = { applyBpm(bpm + 1) },
-                modifier = Modifier.size(48.dp).semantics { contentDescription = "Increase tempo" }
+                modifier = Modifier.size(40.dp).semantics { contentDescription = "Increase tempo" }
             ) { Icon(Icons.Default.Add, contentDescription = null, tint = SanwolfTextPrimary) }
             Spacer(modifier = Modifier.width(4.dp))
             TapTempoButton(onBpm = { applyBpm(it) })
@@ -247,7 +247,7 @@ fun SidebarDropdownField(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 56.dp)
+                .heightIn(min = 44.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(6.dp))
                 .clickable(role = Role.Button, onClickLabel = "Choose $label") { open = true }
@@ -291,7 +291,7 @@ private fun GenreSuggestionButton(onPick: (String) -> Unit) {
     Box {
         IconButton(
             onClick = { open = true },
-            modifier = Modifier.size(48.dp).semantics { contentDescription = "Pick a genre" }
+            modifier = Modifier.size(40.dp).semantics { contentDescription = "Pick a genre" }
         ) { Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = SanwolfGold) }
         DropdownMenu(
             expanded = open,
@@ -317,7 +317,7 @@ fun TapTempoButton(onBpm: (Int) -> Unit) {
     val tapTimes = remember { mutableStateListOf<Long>() }
     Box(
         modifier = Modifier
-            .size(width = 56.dp, height = 48.dp)
+            .size(width = 48.dp, height = 40.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(SanwolfPanelElevated)
             .clickable(role = Role.Button) {

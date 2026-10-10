@@ -21,7 +21,7 @@ fun MidiMappingDialog(
     onAddMapping: (MidiMapping) -> Unit,
     onDeleteMapping: (MidiMapping) -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    ScaledDialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier.fillMaxWidth(0.8f),
             color = MaterialTheme.colorScheme.surface

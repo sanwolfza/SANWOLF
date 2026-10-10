@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanwolf.daw.model.ProjectData
+import com.sanwolf.daw.ui.theme.Dimens
 import com.sanwolf.daw.ui.theme.SanwolfBlack
 import com.sanwolf.daw.ui.theme.SanwolfCyan
 import com.sanwolf.daw.ui.theme.SanwolfGold
@@ -79,7 +80,7 @@ fun TopToolbar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp),
+            .height(Dimens.toolbarHeight),
         color = SanwolfPanel,
         border = androidx.compose.foundation.BorderStroke(1.dp, SanwolfPanelBorder)
     ) {
@@ -98,7 +99,7 @@ fun TopToolbar(
                 IconButton(
                     onClick = onToggleSidebar,
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(Dimens.toolbarButton)
                         .clip(RoundedCornerShape(6.dp))
                         .background(SanwolfPanelElevated)
                         .testTag("menu_sidebar_toggle")
@@ -107,7 +108,7 @@ fun TopToolbar(
                         imageVector = Icons.Default.Menu,
                         contentDescription = if (isSidebarExpanded) "Hide studio panel" else "Show studio panel",
                         tint = SanwolfGold,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(Dimens.toolbarIcon)
                     )
                 }
 
@@ -248,7 +249,7 @@ private fun RecordingIndicator(
 
     Row(
         modifier = Modifier
-            .heightIn(min = 40.dp)
+            .heightIn(min = 32.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(SanwolfMagenta.copy(alpha = 0.18f))
             .border(1.dp, SanwolfMagenta, RoundedCornerShape(6.dp))
@@ -270,7 +271,7 @@ private fun RecordingIndicator(
             color = SanwolfTextPrimary,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            fontSize = 14.sp
+            fontSize = 12.sp
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(

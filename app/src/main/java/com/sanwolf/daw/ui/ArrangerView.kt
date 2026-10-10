@@ -114,6 +114,7 @@ import com.sanwolf.daw.model.TrackData
 import com.sanwolf.daw.model.TrackType
 import com.sanwolf.daw.model.VstPlugin
 import com.sanwolf.daw.ui.sidebar.SidebarNameDialog
+import com.sanwolf.daw.ui.theme.Dimens
 import com.sanwolf.daw.ui.theme.SanwolfBlack
 import com.sanwolf.daw.ui.theme.SanwolfCyan
 import com.sanwolf.daw.ui.theme.SanwolfGold
@@ -133,9 +134,10 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 // ---- Arranger geometry ----
-private val ARR_HEADER_WIDTH = 200.dp
-private val ARR_ROW_HEIGHT = 64.dp
-private val ARR_RULER_HEIGHT = 30.dp
+// Compact geometry (scaled again by the global UI size): more tracks and bars fit on screen.
+private val ARR_HEADER_WIDTH = 160.dp
+private val ARR_ROW_HEIGHT = Dimens.trackRowHeight
+private val ARR_RULER_HEIGHT = Dimens.rulerHeight
 /** 16 bars of 4/4: matches the engine's maximum song loop (SanwolfAudioEngine.MAX_LOOP_BEATS). */
 private const val ARR_TOTAL_BEATS = 64
 private const val MIN_BEAT_WIDTH_DP = 14f
@@ -229,7 +231,8 @@ fun ArrangerView(
     var renameTrackIndex by remember { mutableStateOf<Int?>(null) }
 
     // Timeline view state
-    var beatWidthDp by remember { mutableFloatStateOf(48f) }
+    // ~8 bars visible on a landscape phone at the default zoom (was 48dp/beat ≈ 3-4 bars)
+    var beatWidthDp by remember { mutableFloatStateOf(24f) }
     var snapIndex by remember { mutableIntStateOf(1) }
     val snapBeats = SNAP_OPTIONS[snapIndex.coerceIn(0, SNAP_OPTIONS.size - 1)].first
     val hScroll = rememberScrollState()
@@ -383,17 +386,17 @@ fun ArrangerView(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .height(36.dp)
                     .background(SanwolfPanelElevated)
-                    .padding(horizontal = 6.dp),
+                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box {
                     Row(
                         modifier = Modifier
-                            .heightIn(min = 36.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .heightIn(min = 30.dp)
+                            .clip(RoundedCornerShape(6.dp))
                             .background(SanwolfGold)
                             .clickable { showAddTrackMenu = true }
                             .padding(horizontal = 10.dp)
@@ -402,7 +405,7 @@ fun ArrangerView(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Track", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.padding(vertical = 8.dp))
+                        Text("Track", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.padding(vertical = 4.dp))
                     }
                     DropdownMenu(
                         expanded = showAddTrackMenu,
@@ -424,8 +427,8 @@ fun ArrangerView(
                 // Snap grid
                 Box(
                     modifier = Modifier
-                        .heightIn(min = 36.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .heightIn(min = 30.dp)
+                        .clip(RoundedCornerShape(6.dp))
                         .background(SanwolfBlack)
                         .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(8.dp))
                         .clickable { snapIndex = (snapIndex + 1) % SNAP_OPTIONS.size }
@@ -436,11 +439,11 @@ fun ArrangerView(
                     Text("Snap: ${SNAP_OPTIONS[snapIndex].second}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = SanwolfCyan)
                 }
 
-                IconButton(onClick = { applyZoom(1f / 1.25f, headerWidthPx) }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.ZoomOut, contentDescription = "Zoom out", tint = SanwolfTextPrimary)
+                IconButton(onClick = { applyZoom(1f / 1.25f, headerWidthPx) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.ZoomOut, contentDescription = "Zoom out", tint = SanwolfTextPrimary, modifier = Modifier.size(Dimens.icon))
                 }
-                IconButton(onClick = { applyZoom(1.25f, headerWidthPx) }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.ZoomIn, contentDescription = "Zoom in", tint = SanwolfTextPrimary)
+                IconButton(onClick = { applyZoom(1.25f, headerWidthPx) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.ZoomIn, contentDescription = "Zoom in", tint = SanwolfTextPrimary, modifier = Modifier.size(Dimens.icon))
                 }
 
                 Text(
@@ -495,8 +498,8 @@ fun ArrangerView(
                             drawText(
                                 textMeasurer = textMeasurer,
                                 text = "${b / 4 + 1}",
-                                topLeft = Offset(x + 4f, 2f),
-                                style = TextStyle(color = SanwolfTextSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                topLeft = Offset(x + 3f, 1f),
+                                style = TextStyle(color = SanwolfTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                             )
                         }
                     }
@@ -1023,13 +1026,13 @@ private fun TrackHeaderItem(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 6.dp, end = 2.dp)
+                .padding(start = 5.dp, end = 0.dp)
         ) {
             // One clear name: the instrument's name unless the user renamed the track
             Text(
                 text = track.name,
                 color = if (isSelected) SanwolfTextPrimary else SanwolfTextSecondary,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1047,7 +1050,7 @@ private fun TrackHeaderItem(
                     valueRange = 0f..1.2f,
                     modifier = Modifier
                         .weight(1f)
-                        .height(28.dp)
+                        .height(22.dp)
                         .semantics { contentDescription = "${track.name} volume" },
                     colors = SliderDefaults.colors(
                         thumbColor = if (track.muted || isSilencedBySolo) SanwolfTextMuted else trackColor,
@@ -1057,13 +1060,10 @@ private fun TrackHeaderItem(
                 )
             }
         }
-        // Secondary piano-roll entry (tapping a notes clip is the primary one)
-        IconButton(onClick = onEditPianoRoll, modifier = Modifier.size(36.dp)) {
-            Icon(Icons.Default.MusicNote, contentDescription = "Edit notes", tint = SanwolfGold, modifier = Modifier.size(18.dp))
-        }
+        // Piano-roll entry lives in the ⋮ menu (tapping a notes clip is the primary one) to keep the header narrow.
         Box {
-            IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Track options for ${track.name}", tint = SanwolfTextSecondary, modifier = Modifier.size(20.dp))
+            IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Track options for ${track.name}", tint = SanwolfTextSecondary, modifier = Modifier.size(Dimens.icon))
             }
             DropdownMenu(
                 expanded = menuOpen,
@@ -1107,7 +1107,7 @@ private fun HeaderToggle(
 ) {
     Box(
         modifier = Modifier
-            .size(width = 30.dp, height = 28.dp)
+            .size(width = 26.dp, height = 22.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(if (active) activeColor else SanwolfBlack.copy(alpha = 0.7f))
             .border(if (active) 1.dp else 0.5.dp, if (active) activeColor else SanwolfPanelBorder, RoundedCornerShape(4.dp))
@@ -1131,7 +1131,7 @@ private fun VstPluginRackRow(track: TrackData) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .height(46.dp)
             .background(Color(0xFF0D0D10))
             .border(androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF202028)))
             .padding(horizontal = 12.dp),

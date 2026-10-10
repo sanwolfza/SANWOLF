@@ -67,7 +67,7 @@ fun MasteringSuiteDialog(
     onConfigChange: (MasteringConfig) -> Unit,
     onDismiss: () -> Unit
 ) {
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

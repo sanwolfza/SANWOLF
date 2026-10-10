@@ -92,7 +92,7 @@ fun ExportDialog(
     var exportedFile by remember { mutableStateOf<File?>(null) }
     var statusText by remember { mutableStateOf<String?>(null) }
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

@@ -59,7 +59,9 @@ import com.sanwolf.daw.ui.sidebar.SettingsSection
 import com.sanwolf.daw.ui.sidebar.SidebarBadge
 import com.sanwolf.daw.ui.sidebar.SongInfoSection
 import com.sanwolf.daw.ui.sidebar.ToolsSection
+import com.sanwolf.daw.ui.theme.Dimens
 import com.sanwolf.daw.ui.theme.SanwolfGold
+import com.sanwolf.daw.ui.theme.sidePanelWidth
 import com.sanwolf.daw.ui.theme.SanwolfPanel
 import com.sanwolf.daw.ui.theme.SanwolfPanelBorder
 import com.sanwolf.daw.ui.theme.SanwolfSurfaceDark
@@ -77,7 +79,7 @@ enum class SidebarTab(val title: String, val icon: ImageVector) {
 
 /**
  * Left drawer: a slim icon rail that is always visible (outside focus mode) plus an
- * animated ~320dp panel for the selected section. Tapping a rail icon opens that section;
+ * animated panel (a fraction of the screen width, capped at Dimens.sidePanelMax) for the selected section. Tapping a rail icon opens that section;
  * tapping the open section's icon again collapses the panel.
  */
 @Composable
@@ -133,6 +135,7 @@ fun DawSidebarPanel(
     onOpenMixer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val panelWidth = sidePanelWidth()
     Row(
         modifier = modifier
             .fillMaxHeight()
@@ -141,7 +144,7 @@ fun DawSidebarPanel(
         // --- Icon rail (always visible) ---
         Column(
             modifier = Modifier
-                .width(56.dp)
+                .width(Dimens.railWidth)
                 .fillMaxHeight()
                 .background(SanwolfSurfaceDark)
                 .border(BorderStroke(1.dp, SanwolfPanelBorder))
@@ -152,7 +155,7 @@ fun DawSidebarPanel(
         ) {
             IconButton(
                 onClick = { onExpandedChange(!expanded) },
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(Dimens.railButton)
             ) {
                 Icon(
                     imageVector = if (expanded) Icons.Default.ChevronLeft else Icons.Default.ChevronRight,
@@ -187,7 +190,7 @@ fun DawSidebarPanel(
         ) {
             Column(
                 modifier = Modifier
-                    .width(320.dp)
+                    .width(panelWidth)
                     .fillMaxHeight()
                     .background(SanwolfPanel)
                     .border(BorderStroke(1.dp, SanwolfPanelBorder))
@@ -203,7 +206,7 @@ fun DawSidebarPanel(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = selectedTab.title.uppercase(),
-                        fontSize = 14.sp,
+                        fontSize = Dimens.textTitle,
                         fontWeight = FontWeight.Black,
                         color = SanwolfGold,
                         letterSpacing = 1.sp,
@@ -214,7 +217,7 @@ fun DawSidebarPanel(
                     if (isDirty) {
                         SidebarBadge("UNSAVED", SanwolfGold)
                     }
-                    IconButton(onClick = { onExpandedChange(false) }, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = { onExpandedChange(false) }, modifier = Modifier.size(Dimens.iconButton)) {
                         Icon(Icons.Default.ChevronLeft, contentDescription = "Collapse side panel", tint = SanwolfTextSecondary)
                     }
                 }
@@ -225,8 +228,11 @@ fun DawSidebarPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(12.dp)
+                            .then(
+                                // The sample browser scrolls its own lazy list; the rest scroll here.
+                                if (selectedTab == SidebarTab.SAMPLES) Modifier else Modifier.verticalScroll(rememberScrollState())
+                            )
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
                     ) {
                         when (selectedTab) {
                             SidebarTab.PROJECT -> ProjectSection(
@@ -284,7 +290,7 @@ fun DawSidebarPanel(
                                 onOpenMixer = onOpenMixer
                             )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
+                        if (selectedTab != SidebarTab.SAMPLES) Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
@@ -303,8 +309,8 @@ private fun RailButton(
         IconButton(
             onClick = onClick,
             modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .size(Dimens.railButton)
+                .clip(RoundedCornerShape(8.dp))
                 .background(if (isSelected) SanwolfGold.copy(alpha = 0.18f) else Color.Transparent)
                 .semantics {
                     contentDescription = if (showDot) "${tab.title} (unsaved changes)" else tab.title
@@ -315,14 +321,14 @@ private fun RailButton(
                 imageVector = tab.icon,
                 contentDescription = null,
                 tint = if (isSelected) SanwolfGold else SanwolfTextPrimary,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(Dimens.railIcon)
             )
         }
         if (showDot) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 8.dp, end = 8.dp)
+                    .padding(top = 6.dp, end = 6.dp)
                     .size(8.dp)
                     .clip(CircleShape)
                     .background(SanwolfGold)

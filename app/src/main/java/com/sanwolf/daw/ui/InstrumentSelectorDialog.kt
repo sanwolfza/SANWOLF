@@ -145,7 +145,7 @@ fun InstrumentSelectorDialog(
         }
     }
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

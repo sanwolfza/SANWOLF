@@ -369,7 +369,7 @@ private fun ProjectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (isCurrent) SanwolfGold.copy(alpha = 0.12f) else SanwolfPanelElevated)
             .border(1.dp, if (isCurrent) SanwolfGold.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(6.dp))
@@ -410,7 +410,7 @@ private fun ProjectRow(
             IconButton(
                 onClick = { menuOpen = true },
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(40.dp)
                     .semantics { contentDescription = "More options for ${summary.title}" }
             ) {
                 Icon(Icons.Default.MoreVert, contentDescription = null, tint = SanwolfTextSecondary)

@@ -122,7 +122,7 @@ fun AiStudioDialog(
     var isLyriaPro by remember { mutableStateOf(false) }
     var cloneStyle by remember { mutableStateOf("Cyber Trap with punchy 808s and modern wide master") }
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

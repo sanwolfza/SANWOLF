@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -45,7 +47,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanwolf.daw.BuildConfig
 import com.sanwolf.daw.model.ProjectData
+import com.sanwolf.daw.ui.theme.LocalUiSizeState
 import com.sanwolf.daw.ui.theme.SanwolfCyan
+import com.sanwolf.daw.ui.theme.UiSize
 import com.sanwolf.daw.ui.theme.SanwolfGold
 import com.sanwolf.daw.ui.theme.SanwolfLime
 import com.sanwolf.daw.ui.theme.SanwolfPanelElevated
@@ -102,6 +106,9 @@ fun SettingsSection(
             }
         )
 
+        SidebarSectionHeader("DISPLAY")
+        UiSizeRow()
+
         SidebarSectionHeader("WORKSPACE")
         SidebarActionRow(
             label = "Focus mode",
@@ -121,7 +128,7 @@ fun SettingsSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp)
+                .heightIn(min = 40.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(SanwolfPanelElevated)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -163,6 +170,37 @@ fun ToolsSection(
     }
 }
 
+/** Settings > Display > UI size: Compact (default) / Normal / Large, applied app-wide. */
+@Composable
+private fun UiSizeRow() {
+    val uiSizeState = LocalUiSizeState.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(SanwolfPanelElevated)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.ZoomOutMap, contentDescription = null, tint = SanwolfTextSecondary, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("UI size", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = SanwolfTextPrimary, modifier = Modifier.weight(1f))
+            Text("${(uiSizeState.size.scale * 100).toInt()}%", fontSize = 11.sp, color = SanwolfTextSecondary)
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            UiSize.values().forEach { size ->
+                SidebarChip(
+                    label = size.label,
+                    selected = uiSizeState.size == size,
+                    onClick = { uiSizeState.update(size) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun SettingSwitchRow(
     label: String,
@@ -174,7 +212,7 @@ private fun SettingSwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(SanwolfPanelElevated)
             .toggleable(value = checked, role = Role.Switch, onValueChange = { onToggle() })
@@ -223,7 +261,7 @@ private fun SettingSliderRow(
             onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp)
+                .heightIn(min = 32.dp)
                 .semantics { contentDescription = label },
             colors = SliderDefaults.colors(thumbColor = SanwolfGold, activeTrackColor = SanwolfGold)
         )

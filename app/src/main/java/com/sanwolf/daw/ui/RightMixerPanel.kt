@@ -71,7 +71,7 @@ private val MASTER_PRESETS = listOf(
 
 /**
  * Right-hand mastering hub: a slim icon rail on the screen edge (always visible) plus an
- * animated ~320dp panel with the Mixer (per-track volume/pan/mute/solo) and the Master chain
+ * animated panel (fraction of screen width, capped) with the Mixer (per-track volume/pan/mute/solo) and the Master chain
  * (EQ shelves, glue compressor, stereo width, limiter drive/ceiling, meters, presets, bypass)
  * and an Export button. Every control here drives a real engine parameter.
  */
@@ -105,7 +105,7 @@ fun RightMixerPanel(
         ) {
             Column(
                 modifier = Modifier
-                    .width(320.dp)
+                    .width(sidePanelWidth())
                     .fillMaxHeight()
                     .background(SanwolfPanel)
                     .border(BorderStroke(1.dp, SanwolfPanelBorder))
@@ -114,17 +114,17 @@ fun RightMixerPanel(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 4.dp, end = 12.dp, top = 2.dp),
+                        .padding(start = 2.dp, end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onToggleExpand, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = onToggleExpand, modifier = Modifier.size(Dimens.iconButton)) {
                         Icon(Icons.Default.ChevronRight, contentDescription = "Collapse mastering panel", tint = SanwolfTextSecondary)
                     }
                     Icon(selectedTab.icon, contentDescription = null, tint = SanwolfCyan, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = selectedTab.title.uppercase(),
-                        fontSize = 14.sp,
+                        fontSize = Dimens.textTitle,
                         fontWeight = FontWeight.Black,
                         color = SanwolfCyan,
                         letterSpacing = 1.sp,
@@ -143,8 +143,8 @@ fun RightMixerPanel(
                             .fillMaxWidth()
                             .weight(1f)
                             .verticalScroll(rememberScrollState())
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         when (selectedTab) {
                             RightPanelTab.MIXER -> MixerSection(
@@ -171,15 +171,16 @@ fun RightMixerPanel(
                     onClick = onOpenExport,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(10.dp)
-                        .heightIn(min = 48.dp)
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .heightIn(min = Dimens.buttonMin)
                         .testTag("hub_export_button"),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = SanwolfGold, contentColor = Color.Black),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Export mix", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Export mix", fontWeight = FontWeight.Bold, fontSize = Dimens.textTitle)
                 }
             }
         }
@@ -187,7 +188,7 @@ fun RightMixerPanel(
         // --- Icon rail (always visible, on the screen edge) ---
         Column(
             modifier = Modifier
-                .width(56.dp)
+                .width(Dimens.railWidth)
                 .fillMaxHeight()
                 .background(SanwolfSurfaceDark)
                 .border(BorderStroke(1.dp, SanwolfPanelBorder))
@@ -196,7 +197,7 @@ fun RightMixerPanel(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            IconButton(onClick = onToggleExpand, modifier = Modifier.size(48.dp)) {
+            IconButton(onClick = onToggleExpand, modifier = Modifier.size(Dimens.railButton)) {
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.ChevronRight else Icons.Default.ChevronLeft,
                     contentDescription = if (isExpanded) "Collapse mastering panel" else "Expand mastering panel",
@@ -244,8 +245,8 @@ private fun HubRailButton(
     IconButton(
         onClick = onClick,
         modifier = Modifier
-            .size(48.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .size(Dimens.railButton)
+            .clip(RoundedCornerShape(8.dp))
             .background(if (isSelected) SanwolfCyan.copy(alpha = 0.18f) else Color.Transparent)
             .semantics {
                 contentDescription = label
@@ -256,7 +257,7 @@ private fun HubRailButton(
             imageVector = icon,
             contentDescription = null,
             tint = if (isSelected) SanwolfCyan else SanwolfTextPrimary,
-            modifier = Modifier.size(24.dp)
+            modifier = Modifier.size(Dimens.railIcon)
         )
     }
 }
@@ -322,8 +323,8 @@ fun TrackMixerStrip(
             .clip(RoundedCornerShape(6.dp))
             .background(SanwolfPanelElevated)
             .border(0.5.dp, if (track.muted) Color.Red.copy(alpha = 0.5f) else if (track.solo) SanwolfGold else SanwolfPanelBorder)
-            .padding(6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -357,11 +358,11 @@ fun TrackMixerStrip(
                         .background(if (track.muted) Color.Red.copy(alpha = 0.3f) else SanwolfBlack)
                         .border(0.5.dp, if (track.muted) Color.Red else SanwolfPanelBorder)
                         .clickable { onToggleMute() }
-                        .size(40.dp)
+                        .size(30.dp)
                         .semantics { contentDescription = if (track.muted) "Unmute ${track.name}" else "Mute ${track.name}" },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("M", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (track.muted) Color.Red else SanwolfTextSecondary)
+                    Text("M", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (track.muted) Color.Red else SanwolfTextSecondary)
                 }
                 Box(
                     modifier = Modifier
@@ -369,11 +370,11 @@ fun TrackMixerStrip(
                         .background(if (track.solo) SanwolfGold.copy(alpha = 0.3f) else SanwolfBlack)
                         .border(0.5.dp, if (track.solo) SanwolfGold else SanwolfPanelBorder)
                         .clickable { onToggleSolo() }
-                        .size(40.dp)
+                        .size(30.dp)
                         .semantics { contentDescription = if (track.solo) "Unsolo ${track.name}" else "Solo ${track.name}" },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("S", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (track.solo) SanwolfGold else SanwolfTextSecondary)
+                    Text("S", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (track.solo) SanwolfGold else SanwolfTextSecondary)
                 }
             }
         }
@@ -388,7 +389,7 @@ fun TrackMixerStrip(
                 value = track.volume.coerceIn(0f, 1f),
                 onValueChange = onVolumeChange,
                 valueRange = 0f..1f,
-                modifier = Modifier.weight(1f).height(36.dp).semantics { contentDescription = "${track.name} volume" },
+                modifier = Modifier.weight(1f).height(28.dp).semantics { contentDescription = "${track.name} volume" },
                 colors = SliderDefaults.colors(thumbColor = SanwolfCyan, activeTrackColor = SanwolfCyan)
             )
             Text("${(track.volume * 100).toInt()}%", fontSize = 12.sp, color = SanwolfTextSecondary, modifier = Modifier.width(40.dp))
@@ -404,7 +405,7 @@ fun TrackMixerStrip(
                 value = track.pan,
                 onValueChange = onPanChange,
                 valueRange = -1f..1f,
-                modifier = Modifier.weight(1f).height(36.dp).semantics { contentDescription = "${track.name} pan" },
+                modifier = Modifier.weight(1f).height(28.dp).semantics { contentDescription = "${track.name} pan" },
                 colors = SliderDefaults.colors(thumbColor = SanwolfGold, activeTrackColor = SanwolfGold)
             )
             val panTxt = if (track.pan < -0.05f) "L${((-track.pan) * 100).toInt()}" else if (track.pan > 0.05f) "R${((track.pan) * 100).toInt()}" else "C"
@@ -628,7 +629,7 @@ private fun HubSlider(
             enabled = enabled,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(36.dp)
+                .height(30.dp)
                 .semantics { contentDescription = label },
             colors = SliderDefaults.colors(thumbColor = color, activeTrackColor = color)
         )
@@ -639,7 +640,7 @@ private fun HubSlider(
 private fun AbChip(label: String, selected: Boolean, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier = modifier
-            .heightIn(min = 44.dp)
+            .heightIn(min = 34.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(if (selected) color.copy(alpha = 0.22f) else SanwolfPanelElevated)
             .border(1.dp, if (selected) color else SanwolfPanelBorder, RoundedCornerShape(8.dp))

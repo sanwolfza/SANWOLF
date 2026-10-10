@@ -88,7 +88,7 @@ fun CloudSyncDialog(
         res.onSuccess { cloudProjects = it }
     }
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

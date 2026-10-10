@@ -55,7 +55,7 @@ fun SidebarSectionHeader(title: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** A full-width, 48dp-minimum tappable row with an icon, a label and an optional subtitle. */
+/** A full-width, 40dp-minimum tappable row with an icon, a label and an optional subtitle. */
 @Composable
 fun SidebarActionRow(
     label: String,
@@ -70,7 +70,7 @@ fun SidebarActionRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
+            .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(SanwolfPanelElevated)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
@@ -129,11 +129,11 @@ fun SidebarBadge(text: String, color: Color, modifier: Modifier = Modifier) {
 fun SidebarChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .heightIn(min = 40.dp)
+            .heightIn(min = 32.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (selected) SanwolfGold else SanwolfPanelElevated)
             .clickable(role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(

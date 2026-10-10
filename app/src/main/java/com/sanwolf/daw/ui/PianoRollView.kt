@@ -183,9 +183,10 @@ fun PianoRollView(
     val verticalScrollState = rememberScrollState()
 
     // Scroll to middle C (pitch 60) on initial launch
+    val scrollDensity = androidx.compose.ui.platform.LocalDensity.current
     LaunchedEffect(Unit) {
-        // Pitch 60 is at index 36 in 96 downTo 24, keyHeight = 22.dp
-        verticalScrollState.scrollTo(36 * 22)
+        // Pitch 60 is at index 36 in 96 downTo 24, keyHeight = 22.dp (convert dp -> px)
+        verticalScrollState.scrollTo(with(scrollDensity) { (36 * 22).dp.roundToPx() })
     }
 
     fun snapBeat(rawBeat: Double): Double {
@@ -1322,7 +1323,7 @@ fun PianoRollView(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(46.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(SanwolfPanel)
                     .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(6.dp))
@@ -1461,7 +1462,7 @@ fun ExportPianoRollSequenceDialog(
         track.steps.count { it }
     } else 0
 
-    Dialog(
+    ScaledDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

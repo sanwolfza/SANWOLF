@@ -159,7 +159,7 @@ fun FirstTimeTutorialDialog(
         onDismiss()
     }
 
-    Dialog(onDismissRequest = { finishTutorial() }) {
+    ScaledDialog(onDismissRequest = { finishTutorial() }) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
