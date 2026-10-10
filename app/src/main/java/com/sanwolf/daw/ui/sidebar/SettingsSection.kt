@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
@@ -33,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanwolf.daw.BuildConfig
 import com.sanwolf.daw.model.ProjectData
+import com.sanwolf.daw.ui.SoundLicencesDialog
 import com.sanwolf.daw.ui.theme.LocalUiSizeState
 import com.sanwolf.daw.ui.theme.SanwolfCyan
 import com.sanwolf.daw.ui.theme.UiSize
@@ -72,6 +75,7 @@ fun SettingsSection(
     onOpenTutorial: () -> Unit
 ) {
     var masterVol by remember(loadKey) { mutableFloatStateOf(project.masterVolume) }
+    var showSoundLicences by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SidebarSectionHeader("CLICK & RECORDING")
@@ -146,6 +150,17 @@ fun SettingsSection(
                 )
             }
         }
+        SidebarActionRow(
+            label = "Sound licences",
+            subtitle = "Where the factory sounds come from",
+            icon = Icons.Default.Gavel,
+            tint = SanwolfTextSecondary,
+            onClick = { showSoundLicences = true }
+        )
+    }
+
+    if (showSoundLicences) {
+        SoundLicencesDialog(onDismiss = { showSoundLicences = false })
     }
 }
 

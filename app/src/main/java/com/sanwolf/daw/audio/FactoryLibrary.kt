@@ -27,8 +27,21 @@ data class FactorySound(
     val bpm: Int?,
     val durationMs: Int,
     val channels: Int,
-    val bars: Int?
+    val bars: Int?,
+    /** Licence of the recording, e.g. "Original - SANWOLF, generated" or "CC0 1.0". */
+    val licence: String = DEFAULT_LICENCE,
+    /** Where the sound comes from (library / sample pack name). */
+    val source: String = DEFAULT_SOURCE,
+    val author: String = DEFAULT_AUTHOR,
+    /** Project / licence page, if any. */
+    val url: String? = null
 ) {
+    companion object {
+        const val DEFAULT_LICENCE = "Original - SANWOLF, generated"
+        const val DEFAULT_SOURCE = "SANWOLF factory library"
+        const val DEFAULT_AUTHOR = "SANWOLF"
+    }
+
     val assetPath: String get() = "${FactoryLibrary.ASSET_DIR}/$file"
     val isLoop: Boolean get() = category.equals("Loops", ignoreCase = true) || bpm != null
     /** Drum / percussion one-shots can also drive a step-sequencer (drum) track. */
@@ -128,7 +141,11 @@ object FactoryLibrary {
                     bpm = o.nullableInt("bpm"),
                     durationMs = o.optInt("durationMs", 0),
                     channels = o.optInt("channels", 1),
-                    bars = o.nullableInt("bars")
+                    bars = o.nullableInt("bars"),
+                    licence = o.nullableString("licence") ?: o.nullableString("license") ?: FactorySound.DEFAULT_LICENCE,
+                    source = o.nullableString("source") ?: FactorySound.DEFAULT_SOURCE,
+                    author = o.nullableString("author") ?: FactorySound.DEFAULT_AUTHOR,
+                    url = o.nullableString("url")
                 )
             )
         }
@@ -195,6 +212,23 @@ object FactoryLibrary {
         }
     }
 
+    /** Sounds grouped by (source, licence, author, url), for Settings > About > Sound licences. */
+    fun licenceGroups(context: Context): List<SoundLicenceGroup> =
+        sounds(context)
+            .groupBy { listOf(it.source, it.licence, it.author, it.url ?: "") }
+            .map { (_, list) ->
+                val first = list.first()
+                SoundLicenceGroup(
+                    source = first.source,
+                    licence = first.licence,
+                    author = first.author,
+                    url = first.url,
+                    soundCount = list.size,
+                    genres = list.map { it.genreLabel }.distinct()
+                )
+            }
+            .sortedByDescending { it.soundCount }
+
     // ---------------------------------------------------------------- preview
 
     private var previewPlayer: MediaPlayer? = null
@@ -247,3 +281,13 @@ object FactoryLibrary {
         previewingId.value = null
     }
 }
+
+/** One source/licence line in the Sound licences screen. */
+data class SoundLicenceGroup(
+    val source: String,
+    val licence: String,
+    val author: String,
+    val url: String?,
+    val soundCount: Int,
+    val genres: List<String>
+)
