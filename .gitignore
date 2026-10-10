@@ -16,3 +16,6 @@
 local.properties
 .env
 debug.keystore
+
+# Firebase config: add from the Firebase console locally or via the GOOGLE_SERVICES_JSON CI secret
+app/google-services.json

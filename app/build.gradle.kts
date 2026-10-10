@@ -48,9 +48,16 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      isDebuggable = false
       val releaseKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-      if (releaseKeystore.exists()) {
-        signingConfig = signingConfigs.getByName("release")
+      signingConfig = if (releaseKeystore.exists()) {
+        signingConfigs.getByName("release")
+      } else {
+        // No upload keystore (local builds, CI without the keystore secret): sign the
+        // non-debuggable release APK with the debug key so it can be installed for testing.
+        // Such an APK must never be published to the Play Store.
+        val localDebugKeystore = file("${rootDir}/debug.keystore")
+        if (localDebugKeystore.exists()) signingConfigs.getByName("debugConfig") else signingConfigs.getByName("debug")
       }
     }
     debug {

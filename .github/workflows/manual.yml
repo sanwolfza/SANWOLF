@@ -43,11 +43,47 @@ jobs:
             cp .env.example .env
           fi
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+      # Optional: Firebase config. Without it the google-services plugin only warns
+      # (missingGoogleServicesStrategy = WARN) and cloud features stay offline.
+      - name: Add google-services.json from secret (optional)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "google-services.json written from secret"
+          else
+            echo "GOOGLE_SERVICES_JSON secret not set; building without Firebase config"
+          fi
 
-      - name: Save APK
+      # Optional: real upload key. Without it the release APK is signed with the debug key.
+      - name: Decode release keystore (optional)
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload-key.jks"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/upload-key.jks" >> "$GITHUB_ENV"
+            echo "Release keystore found: release APK will use the upload key"
+          else
+            echo "RELEASE_KEYSTORE_BASE64 secret not set: release APK will be signed with the debug key (testing only)"
+          fi
+
+      - name: Build debug and release APKs
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleDebug assembleRelease
+
+      - name: Save debug APK
         uses: actions/upload-artifact@v4
         with:
           name: SANWOLF-APK
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Save release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SANWOLF-release-APK
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
