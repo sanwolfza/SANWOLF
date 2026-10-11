@@ -106,7 +106,7 @@ object WavExporter {
 
             // A track with an insert rack renders into its own buffer, runs through the rack
             // (same modules as live playback) and is then summed into the mix.
-            val rackChain = buildExportChain(track.fxSlots())
+            val rackChain = buildExportChain(track.fxSlots(), project.bpm)
             val target: ShortArray = if (rackChain.isNotEmpty()) ShortArray(pcmData.size) else pcmData
 
             val stepCount = track.stepCount.coerceAtLeast(1)
@@ -267,10 +267,11 @@ object WavExporter {
     }
 
     /** Fresh processors for an export pass (state starts clean, like playback from silence). */
-    private fun buildExportChain(slots: List<com.sanwolf.daw.model.FxSlot>): Array<FxUnit> {
+    private fun buildExportChain(slots: List<com.sanwolf.daw.model.FxSlot>, bpm: Int = 120): Array<FxUnit> {
         val units = ArrayList<FxUnit>()
         for (slot in slots.take(com.sanwolf.daw.model.FX_RACK_SLOTS)) {
             val proc = FxProcessor.createFor(slot, 44100) ?: continue
+            proc.bpm = bpm.coerceAtLeast(1).toDouble() // tempo-synced delay / LFOs follow the song
             proc.configure(slot)
             units.add(FxUnit(slot, proc))
         }
@@ -300,7 +301,7 @@ object WavExporter {
     private fun applyMasteringToBuffer(buffer: ShortArray, project: ProjectData) {
         val bus = MasterBusProcessor(44100)
         bus.configure(project.masteringConfig, project.masterVolume)
-        val inserts = buildExportChain(project.masterSlots())
+        val inserts = buildExportChain(project.masterSlots(), project.bpm)
         val io = FloatArray(2)
         val tmp = FloatArray(2)
         val out = FloatArray(2)
@@ -319,7 +320,7 @@ object WavExporter {
     private fun applyMasteringToFloat(buffer: ShortArray, outFloat: FloatArray, project: ProjectData) {
         val bus = MasterBusProcessor(44100)
         bus.configure(project.masteringConfig, project.masterVolume)
-        val inserts = buildExportChain(project.masterSlots())
+        val inserts = buildExportChain(project.masterSlots(), project.bpm)
         val io = FloatArray(2)
         val tmp = FloatArray(2)
         val out = FloatArray(2)

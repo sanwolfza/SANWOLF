@@ -459,7 +459,7 @@ class FirebaseDawManager(private val context: Context) {
                 timeSignatureDenominator = original.timeSignatureDenominator,
                 masterVolume = original.masterVolume,
                 masteringConfig = original.masteringConfig.copy(),
-                masterRack = original.masterRack?.map { it.copy(id = UUID.randomUUID().toString()) }?.toMutableList(),
+                masterRack = original.masterRack?.map { it.copy(id = UUID.randomUUID().toString(), params = it.params?.copyOf()) }?.toMutableList(),
                 isCloudSynced = false,
                 lastSavedTimestamp = System.currentTimeMillis()
             )
@@ -490,7 +490,7 @@ class FirebaseDawManager(private val context: Context) {
                     audioDurationMs = t.audioDurationMs,
                     patternStartBeat = t.patternStartBeat,
                     notesClipEndBeat = t.notesClipEndBeat,
-                    fxRack = t.fxRack?.map { it.copy(id = UUID.randomUUID().toString()) }?.toMutableList()
+                    fxRack = t.fxRack?.map { it.copy(id = UUID.randomUUID().toString(), params = it.params?.copyOf()) }?.toMutableList()
                 )
                 System.arraycopy(t.steps, 0, copyTrack.steps, 0, 32)
                 System.arraycopy(t.stepVelocities, 0, copyTrack.stepVelocities, 0, 32)
@@ -822,7 +822,7 @@ class FirebaseDawManager(private val context: Context) {
 
 /** Insert-rack slots as Firestore maps. */
 private fun fxSlotsToMaps(slots: List<com.sanwolf.daw.model.FxSlot>): List<Map<String, Any>> = slots.map { slot ->
-    mapOf(
+    val base = mapOf(
         "id" to slot.id,
         "type" to slot.type,
         "bypassed" to slot.bypassed,
@@ -833,6 +833,9 @@ private fun fxSlotsToMaps(slots: List<com.sanwolf.daw.model.FxSlot>): List<Map<S
         "driveDb" to slot.driveDb,
         "ceilingDb" to slot.ceilingDb
     )
+    // Newer FX modules keep their values in params (by index); absent for the original four
+    val params = slot.params
+    if (params == null) base else base + ("params" to params.map { it.toDouble() })
 }
 
 /** Reads slots written by [fxSlotsToMaps]; null when the field is absent (older documents). */
@@ -852,7 +855,10 @@ private fun mapsToFxSlots(raw: Any?): MutableList<com.sanwolf.daw.model.FxSlot>?
                 thresholdDb = f("thresholdDb", -18f),
                 width = f("width", 1f),
                 driveDb = f("driveDb", 0f),
-                ceilingDb = f("ceilingDb", -1f)
+                ceilingDb = f("ceilingDb", -1f),
+                params = (m["params"] as? List<*>)?.let { raw ->
+                    FloatArray(raw.size) { i -> (raw[i] as? Number)?.toFloat() ?: Float.NaN }
+                }
             )
         )
     }

@@ -180,6 +180,7 @@ class SanwolfAudioEngine(private val context: Context) {
                 val master = unitsFor(project.masterSlots())
                 fxProcessors.keys.retainAll(used)
                 fxPlan = FxRackPlan(keys.toTypedArray(), chains.toTypedArray(), master)
+                FxMeters.publish(fxProcessors)
             }
         } catch (e: Exception) {
             // The UI thread may be editing a rack list concurrently; the next rebuild fixes it
@@ -325,9 +326,9 @@ class SanwolfAudioEngine(private val context: Context) {
             busSet.count = busCount
             for (b in 0 until busCount) {
                 busSet.keys[b] = plan.trackKeys[b]
-                configureFxChain(plan.trackChains[b])
+                configureFxChain(plan.trackChains[b], bpm.toDouble())
             }
-            configureFxChain(plan.master)
+            configureFxChain(plan.master, bpm.toDouble())
 
             // ---- Sequencer + voice rendering, in small chunks for tight step timing ----
             var anyVoiceOutput = false
@@ -515,7 +516,8 @@ class SanwolfAudioEngine(private val context: Context) {
             // A full block (longer than the 5 ms look-ahead) of silence in and out means the
             // limiter's delay line is empty; from then on idle blocks can skip all DSP.
             // (~-100 dBFS threshold: EQ filter tails decay towards, but never exactly reach, zero)
-            val blockSilent = !anyVoiceOutput && maxLeft < 1e-5f && maxRight < 1e-5f
+            // Reverb / delay tails keep the block "live" so echoes are neither cut nor reset
+            val blockSilent = !anyVoiceOutput && maxLeft < 1e-5f && maxRight < 1e-5f && !fxPlanHasTail(plan)
             if (blockSilent && !outputSilent) {
                 masterBus.reset()
                 for (chain in plan.trackChains) for (u in chain) u.processor.reset()
