@@ -1,0 +1,1127 @@
+{
+ "format": {
+  "sample_rate": 44100,
+  "bit_depth": 16,
+  "channels": 1,
+  "container": "wav",
+  "midi_convention": "C4 = 60 (middle C); root_midi = sounding pitch verified by FFT"
+ },
+ "licence": "CC0 1.0",
+ "source": "VCSL - Versilian Community Sample Library",
+ "author": "Versilian Studios / Samuel Gossner",
+ "url": "https://github.com/sgossner/VCSL",
+ "notes": "root_midi is the measured sounding pitch (C4=60). tune_cents is an optional fine-tune correction to apply at playback (0 for the Steinway, whose stretch tuning is intentional). For marimba, vibraphone, balafon and kalimba VCSL file names are one octave below sounding pitch; vcsl_note_name keeps the original label.",
+ "instruments": [
+  {
+   "id": "steinway_grand",
+   "name": "Steinway Grand Piano",
+   "category": "Keys",
+   "source_folder": "Chordophones/Zithers/Grand Piano, Steinway B/Sus",
+   "velocity_layer": "Sus (pedal) Close mic, vl3 of vl2-vl4",
+   "samples": [
+    {
+     "file": "steinway_grand/steinway_grand_As0.ogg",
+     "note": "A#0",
+     "root_midi": 22,
+     "tune_cents": 0,
+     "measured_detune_cents": -124,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_A#0_vl3_rr1.wav",
+     "vcsl_note_name": "A#0"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_C1.ogg",
+     "note": "C1",
+     "root_midi": 24,
+     "tune_cents": 0,
+     "measured_detune_cents": -19,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_C1_vl3_rr1.wav",
+     "vcsl_note_name": "C1"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_E1.ogg",
+     "note": "E1",
+     "root_midi": 28,
+     "tune_cents": 0,
+     "measured_detune_cents": -16,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_E1_vl3_rr1.wav",
+     "vcsl_note_name": "E1"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_Fs1.ogg",
+     "note": "F#1",
+     "root_midi": 30,
+     "tune_cents": 0,
+     "measured_detune_cents": -7,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_F#1_vl3_rr1.wav",
+     "vcsl_note_name": "F#1"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_As1.ogg",
+     "note": "A#1",
+     "root_midi": 34,
+     "tune_cents": 0,
+     "measured_detune_cents": -15,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_A#1_vl3_rr1.wav",
+     "vcsl_note_name": "A#1"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_C2.ogg",
+     "note": "C2",
+     "root_midi": 36,
+     "tune_cents": 0,
+     "measured_detune_cents": -18,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_C2_vl3_rr1.wav",
+     "vcsl_note_name": "C2"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_E2.ogg",
+     "note": "E2",
+     "root_midi": 40,
+     "tune_cents": 0,
+     "measured_detune_cents": -3,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_E2_vl3_rr1.wav",
+     "vcsl_note_name": "E2"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_Fs2.ogg",
+     "note": "F#2",
+     "root_midi": 42,
+     "tune_cents": 0,
+     "measured_detune_cents": -9,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_F#2_vl3_rr1.wav",
+     "vcsl_note_name": "F#2"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_As2.ogg",
+     "note": "A#2",
+     "root_midi": 46,
+     "tune_cents": 0,
+     "measured_detune_cents": 5,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_A#2_vl3_rr1.wav",
+     "vcsl_note_name": "A#2"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_C3.ogg",
+     "note": "C3",
+     "root_midi": 48,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_C3_vl3_rr1.wav",
+     "vcsl_note_name": "C3"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_E3.ogg",
+     "note": "E3",
+     "root_midi": 52,
+     "tune_cents": 0,
+     "measured_detune_cents": -5,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_E3_vl3_rr1.wav",
+     "vcsl_note_name": "E3"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_Fs3.ogg",
+     "note": "F#3",
+     "root_midi": 54,
+     "tune_cents": 0,
+     "measured_detune_cents": -3,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_F#3_vl3_rr1.wav",
+     "vcsl_note_name": "F#3"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_As3.ogg",
+     "note": "A#3",
+     "root_midi": 58,
+     "tune_cents": 0,
+     "measured_detune_cents": -3,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_A#3_vl3_rr1.wav",
+     "vcsl_note_name": "A#3"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_C4.ogg",
+     "note": "C4",
+     "root_midi": 60,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_C4_vl3_rr1.wav",
+     "vcsl_note_name": "C4"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_E4.ogg",
+     "note": "E4",
+     "root_midi": 64,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_E4_vl3_rr1.wav",
+     "vcsl_note_name": "E4"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_Fs4.ogg",
+     "note": "F#4",
+     "root_midi": 66,
+     "tune_cents": 0,
+     "measured_detune_cents": -3,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_F#4_vl3_rr1.wav",
+     "vcsl_note_name": "F#4"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_As4.ogg",
+     "note": "A#4",
+     "root_midi": 70,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_A#4_vl3_rr1.wav",
+     "vcsl_note_name": "A#4"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_C5.ogg",
+     "note": "C5",
+     "root_midi": 72,
+     "tune_cents": 0,
+     "measured_detune_cents": -8,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_C5_vl3_rr1.wav",
+     "vcsl_note_name": "C5"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_E5.ogg",
+     "note": "E5",
+     "root_midi": 76,
+     "tune_cents": 0,
+     "measured_detune_cents": -4,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_E5_vl3_rr1.wav",
+     "vcsl_note_name": "E5"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_Fs5.ogg",
+     "note": "F#5",
+     "root_midi": 78,
+     "tune_cents": 0,
+     "measured_detune_cents": -4,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_F#5_vl3_rr1.wav",
+     "vcsl_note_name": "F#5"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_As5.ogg",
+     "note": "A#5",
+     "root_midi": 82,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_A#5_vl3_rr1.wav",
+     "vcsl_note_name": "A#5"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_C6.ogg",
+     "note": "C6",
+     "root_midi": 84,
+     "tune_cents": 0,
+     "measured_detune_cents": 3,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_C6_vl3_rr1.wav",
+     "vcsl_note_name": "C6"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_E6.ogg",
+     "note": "E6",
+     "root_midi": 88,
+     "tune_cents": 0,
+     "measured_detune_cents": 5,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_E6_vl3_rr1.wav",
+     "vcsl_note_name": "E6"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_Fs6.ogg",
+     "note": "F#6",
+     "root_midi": 90,
+     "tune_cents": 0,
+     "measured_detune_cents": -5,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_F#6_vl3_rr1.wav",
+     "vcsl_note_name": "F#6"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_As6.ogg",
+     "note": "A#6",
+     "root_midi": 94,
+     "tune_cents": 0,
+     "measured_detune_cents": -3,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_A#6_vl3_rr1.wav",
+     "vcsl_note_name": "A#6"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_C7.ogg",
+     "note": "C7",
+     "root_midi": 96,
+     "tune_cents": 0,
+     "measured_detune_cents": 14,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_C7_vl3_rr1.wav",
+     "vcsl_note_name": "C7"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_E7.ogg",
+     "note": "E7",
+     "root_midi": 100,
+     "tune_cents": 0,
+     "measured_detune_cents": 14,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_E7_vl3_rr1.wav",
+     "vcsl_note_name": "E7"
+    },
+    {
+     "file": "steinway_grand/steinway_grand_Fs7.ogg",
+     "note": "F#7",
+     "root_midi": 102,
+     "tune_cents": 0,
+     "measured_detune_cents": 7,
+     "duration_s": 4.0,
+     "source_file": "Chordophones/Zithers/Grand Piano, Steinway B/Sus/JHPiano_Sus_Close_F#7_vl3_rr1.wav",
+     "vcsl_note_name": "F#7"
+    }
+   ],
+   "licence": "CC0 1.0",
+   "source": "VCSL - Versilian Community Sample Library",
+   "author": "Versilian Studios / Samuel Gossner",
+   "url": "https://github.com/sgossner/VCSL"
+  },
+  {
+   "id": "fm_epiano",
+   "name": "FM Electric Piano",
+   "category": "Keys",
+   "source_folder": "Electrophones/TX81Z/FM Piano",
+   "velocity_layer": "vl2 of 3",
+   "samples": [
+    {
+     "file": "fm_epiano/fm_epiano_C1.ogg",
+     "note": "C1",
+     "root_midi": 24,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_C1_vl2.wav",
+     "vcsl_note_name": "C1"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_E1.ogg",
+     "note": "E1",
+     "root_midi": 28,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_E1_vl2.wav",
+     "vcsl_note_name": "E1"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_Gs1.ogg",
+     "note": "G#1",
+     "root_midi": 32,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_G#1_vl2.wav",
+     "vcsl_note_name": "G#1"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_C2.ogg",
+     "note": "C2",
+     "root_midi": 36,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_C2_vl2.wav",
+     "vcsl_note_name": "C2"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_E2.ogg",
+     "note": "E2",
+     "root_midi": 40,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_E2_vl2.wav",
+     "vcsl_note_name": "E2"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_Gs2.ogg",
+     "note": "G#2",
+     "root_midi": 44,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_G#2_vl2.wav",
+     "vcsl_note_name": "G#2"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_C3.ogg",
+     "note": "C3",
+     "root_midi": 48,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_C3_vl2.wav",
+     "vcsl_note_name": "C3"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_E3.ogg",
+     "note": "E3",
+     "root_midi": 52,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_E3_vl2.wav",
+     "vcsl_note_name": "E3"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_Gs3.ogg",
+     "note": "G#3",
+     "root_midi": 56,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_G#3_vl2.wav",
+     "vcsl_note_name": "G#3"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_C4.ogg",
+     "note": "C4",
+     "root_midi": 60,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_C4_vl2.wav",
+     "vcsl_note_name": "C4"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_E4.ogg",
+     "note": "E4",
+     "root_midi": 64,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_E4_vl2.wav",
+     "vcsl_note_name": "E4"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_Gs4.ogg",
+     "note": "G#4",
+     "root_midi": 68,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_G#4_vl2.wav",
+     "vcsl_note_name": "G#4"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_C5.ogg",
+     "note": "C5",
+     "root_midi": 72,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_C5_vl2.wav",
+     "vcsl_note_name": "C5"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_E5.ogg",
+     "note": "E5",
+     "root_midi": 76,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 4.0,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_E5_vl2.wav",
+     "vcsl_note_name": "E5"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_Gs5.ogg",
+     "note": "G#5",
+     "root_midi": 80,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 3.624,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_G#5_vl2.wav",
+     "vcsl_note_name": "G#5"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_C6.ogg",
+     "note": "C6",
+     "root_midi": 84,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 3.628,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_C6_vl2.wav",
+     "vcsl_note_name": "C6"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_E6.ogg",
+     "note": "E6",
+     "root_midi": 88,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.183,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_E6_vl2.wav",
+     "vcsl_note_name": "E6"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_Gs6.ogg",
+     "note": "G#6",
+     "root_midi": 92,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 2.553,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_G#6_vl2.wav",
+     "vcsl_note_name": "G#6"
+    },
+    {
+     "file": "fm_epiano/fm_epiano_C7.ogg",
+     "note": "C7",
+     "root_midi": 96,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 2.486,
+     "source_file": "Electrophones/TX81Z/FM Piano/FMPiano_C7_vl2.wav",
+     "vcsl_note_name": "C7"
+    }
+   ],
+   "licence": "CC0 1.0",
+   "source": "VCSL - Versilian Community Sample Library",
+   "author": "Versilian Studios / Samuel Gossner",
+   "url": "https://github.com/sgossner/VCSL"
+  },
+  {
+   "id": "marimba",
+   "name": "Marimba",
+   "category": "Mallets",
+   "source_folder": "Idiophones/Struck Idiophones/Marimba",
+   "velocity_layer": "med (soft/med/loud)",
+   "samples": [
+    {
+     "file": "marimba/marimba_F2.ogg",
+     "note": "F2",
+     "root_midi": 41,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_F1_med_01.wav",
+     "vcsl_note_name": "F1"
+    },
+    {
+     "file": "marimba/marimba_C3.ogg",
+     "note": "C3",
+     "root_midi": 48,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_C2_med_01.wav",
+     "vcsl_note_name": "C2"
+    },
+    {
+     "file": "marimba/marimba_G3.ogg",
+     "note": "G3",
+     "root_midi": 55,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_G2_med_01.wav",
+     "vcsl_note_name": "G2"
+    },
+    {
+     "file": "marimba/marimba_B3.ogg",
+     "note": "B3",
+     "root_midi": 59,
+     "tune_cents": 0,
+     "measured_detune_cents": 3,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_B2_med_01.wav",
+     "vcsl_note_name": "B2"
+    },
+    {
+     "file": "marimba/marimba_F4.ogg",
+     "note": "F4",
+     "root_midi": 65,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_F3_med_01.wav",
+     "vcsl_note_name": "F3"
+    },
+    {
+     "file": "marimba/marimba_C5.ogg",
+     "note": "C5",
+     "root_midi": 72,
+     "tune_cents": 0,
+     "measured_detune_cents": 4,
+     "duration_s": 2.061,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_C4_med_01.wav",
+     "vcsl_note_name": "C4"
+    },
+    {
+     "file": "marimba/marimba_G5.ogg",
+     "note": "G5",
+     "root_midi": 79,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 1.158,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_G4_med_01.wav",
+     "vcsl_note_name": "G4"
+    },
+    {
+     "file": "marimba/marimba_B5.ogg",
+     "note": "B5",
+     "root_midi": 83,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 1.088,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_B4_med_01.wav",
+     "vcsl_note_name": "B4"
+    },
+    {
+     "file": "marimba/marimba_F6.ogg",
+     "note": "F6",
+     "root_midi": 89,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 1.289,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_F5_med_01.wav",
+     "vcsl_note_name": "F5"
+    },
+    {
+     "file": "marimba/marimba_C7.ogg",
+     "note": "C7",
+     "root_midi": 96,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 1.285,
+     "source_file": "Idiophones/Struck Idiophones/Marimba/Marimba_hit_Outrigger_C6_med_01.wav",
+     "vcsl_note_name": "C6"
+    }
+   ],
+   "licence": "CC0 1.0",
+   "source": "VCSL - Versilian Community Sample Library",
+   "author": "Versilian Studios / Samuel Gossner",
+   "url": "https://github.com/sgossner/VCSL"
+  },
+  {
+   "id": "vibraphone",
+   "name": "Vibraphone",
+   "category": "Mallets",
+   "source_folder": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets",
+   "velocity_layer": "Soft Mallets v2 (louder of 2)",
+   "samples": [
+    {
+     "file": "vibraphone/vibraphone_F3.ogg",
+     "note": "F3",
+     "root_midi": 53,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_F2_v2_rr1_Main.wav",
+     "vcsl_note_name": "F2"
+    },
+    {
+     "file": "vibraphone/vibraphone_A3.ogg",
+     "note": "A3",
+     "root_midi": 57,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_A2_v2_rr1_Main.wav",
+     "vcsl_note_name": "A2"
+    },
+    {
+     "file": "vibraphone/vibraphone_C4.ogg",
+     "note": "C4",
+     "root_midi": 60,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_C3_v2_rr1_Main.wav",
+     "vcsl_note_name": "C3"
+    },
+    {
+     "file": "vibraphone/vibraphone_E4.ogg",
+     "note": "E4",
+     "root_midi": 64,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_E3_v2_rr1_Main.wav",
+     "vcsl_note_name": "E3"
+    },
+    {
+     "file": "vibraphone/vibraphone_G4.ogg",
+     "note": "G4",
+     "root_midi": 67,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_G3_v2_rr1_Main.wav",
+     "vcsl_note_name": "G3"
+    },
+    {
+     "file": "vibraphone/vibraphone_B4.ogg",
+     "note": "B4",
+     "root_midi": 71,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_B3_v2_rr1_Main.wav",
+     "vcsl_note_name": "B3"
+    },
+    {
+     "file": "vibraphone/vibraphone_D5.ogg",
+     "note": "D5",
+     "root_midi": 74,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_D4_v2_rr1_Main.wav",
+     "vcsl_note_name": "D4"
+    },
+    {
+     "file": "vibraphone/vibraphone_F5.ogg",
+     "note": "F5",
+     "root_midi": 77,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_F4_v2_rr1_Main.wav",
+     "vcsl_note_name": "F4"
+    },
+    {
+     "file": "vibraphone/vibraphone_A5.ogg",
+     "note": "A5",
+     "root_midi": 81,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_A4_v2_rr1_Main.wav",
+     "vcsl_note_name": "A4"
+    },
+    {
+     "file": "vibraphone/vibraphone_C6.ogg",
+     "note": "C6",
+     "root_midi": 84,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_C5_v2_rr1_Main.wav",
+     "vcsl_note_name": "C5"
+    },
+    {
+     "file": "vibraphone/vibraphone_E6.ogg",
+     "note": "E6",
+     "root_midi": 88,
+     "tune_cents": 0,
+     "measured_detune_cents": 0,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Struck Idiophones/Vibraphone/Soft Mallets/Vibes_soft_E5_v2_rr1_Main.wav",
+     "vcsl_note_name": "E5"
+    }
+   ],
+   "licence": "CC0 1.0",
+   "source": "VCSL - Versilian Community Sample Library",
+   "author": "Versilian Studios / Samuel Gossner",
+   "url": "https://github.com/sgossner/VCSL"
+  },
+  {
+   "id": "kalimba",
+   "name": "Kalimba",
+   "category": "Plucked",
+   "source_folder": "Idiophones/Plucked Idiophones/Kalimba, Kenya",
+   "velocity_layer": "vl3 rr2 (only layer)",
+   "samples": [
+    {
+     "file": "kalimba/kalimba_B3.ogg",
+     "note": "B3",
+     "root_midi": 59,
+     "tune_cents": 9,
+     "measured_detune_cents": -9,
+     "duration_s": 1.61,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_B2_k8_vl3_rr2.wav",
+     "vcsl_note_name": "B2"
+    },
+    {
+     "file": "kalimba/kalimba_Cs4.ogg",
+     "note": "C#4",
+     "root_midi": 61,
+     "tune_cents": -20,
+     "measured_detune_cents": 20,
+     "duration_s": 1.709,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_C#3_k7_vl3_rr2.wav",
+     "vcsl_note_name": "C#3"
+    },
+    {
+     "file": "kalimba/kalimba_Fs4.ogg",
+     "note": "F#4",
+     "root_midi": 66,
+     "tune_cents": -8,
+     "measured_detune_cents": 8,
+     "duration_s": 2.96,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_F#3_k10_vl3_rr2.wav",
+     "vcsl_note_name": "F#3"
+    },
+    {
+     "file": "kalimba/kalimba_Gs4.ogg",
+     "note": "G#4",
+     "root_midi": 68,
+     "tune_cents": -42,
+     "measured_detune_cents": 42,
+     "duration_s": 2.891,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_G#3_k11_vl3_rr2.wav",
+     "vcsl_note_name": "G#3"
+    },
+    {
+     "file": "kalimba/kalimba_B4.ogg",
+     "note": "B4",
+     "root_midi": 71,
+     "tune_cents": -18,
+     "measured_detune_cents": 18,
+     "duration_s": 3.0,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_B3_k12_vl3_rr2.wav",
+     "vcsl_note_name": "B3"
+    },
+    {
+     "file": "kalimba/kalimba_Cs5.ogg",
+     "note": "C#5",
+     "root_midi": 73,
+     "tune_cents": -20,
+     "measured_detune_cents": 20,
+     "duration_s": 1.972,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_C#4_k2_vl3_rr2.wav",
+     "vcsl_note_name": "C#4"
+    },
+    {
+     "file": "kalimba/kalimba_Fs5.ogg",
+     "note": "F#5",
+     "root_midi": 78,
+     "tune_cents": -36,
+     "measured_detune_cents": 36,
+     "duration_s": 1.747,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_F#4_k14_vl3_rr2.wav",
+     "vcsl_note_name": "F#4"
+    },
+    {
+     "file": "kalimba/kalimba_A5.ogg",
+     "note": "A5",
+     "root_midi": 81,
+     "tune_cents": 37,
+     "measured_detune_cents": -37,
+     "duration_s": 1.312,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_A4_k1_vl3_rr2.wav",
+     "vcsl_note_name": "A4"
+    },
+    {
+     "file": "kalimba/kalimba_B5.ogg",
+     "note": "B5",
+     "root_midi": 83,
+     "tune_cents": -51,
+     "measured_detune_cents": 51,
+     "duration_s": 0.788,
+     "source_file": "Idiophones/Plucked Idiophones/Kalimba, Kenya/Mbira6_Normal_MainSpirit_B4_k15_vl3_rr2.wav",
+     "vcsl_note_name": "B4"
+    }
+   ],
+   "licence": "CC0 1.0",
+   "source": "VCSL - Versilian Community Sample Library",
+   "author": "Versilian Studios / Samuel Gossner",
+   "url": "https://github.com/sgossner/VCSL"
+  },
+  {
+   "id": "balafon",
+   "name": "Balafon",
+   "category": "World",
+   "source_folder": "Idiophones/Struck Idiophones/Balafon/Traditional Mallet",
+   "velocity_layer": "Traditional Mallet vl2 of 3",
+   "samples": [
+    {
+     "file": "balafon/balafon_Cs4.ogg",
+     "note": "C#4",
+     "root_midi": 61,
+     "tune_cents": -10,
+     "measured_detune_cents": 10,
+     "duration_s": 0.87,
+     "source_file": "Idiophones/Struck Idiophones/Balafon/Traditional Mallet/EthnicXylo_tradM_C#3_vl2_rr1_Mid.wav",
+     "vcsl_note_name": "C#3"
+    },
+    {
+     "file": "balafon/balafon_F4.ogg",
+     "note": "F4",
+     "root_midi": 65,
+     "tune_cents": -18,
+     "measured_detune_cents": 18,
+     "duration_s": 0.751,
+     "source_file": "Idiophones/Struck Idiophones/Balafon/Traditional Mallet/EthnicXylo_tradM_F3_vl2_rr1_Mid.wav",
+     "vcsl_note_name": "F3"
+    },
+    {
+     "file": "balafon/balafon_C5.ogg",
+     "note": "C5",
+     "root_midi": 72,
+     "tune_cents": 0,
+     "measured_detune_cents": -3,
+     "duration_s": 0.705,
+     "source_file": "Idiophones/Struck Idiophones/Balafon/Traditional Mallet/EthnicXylo_tradM_C4_vl2_rr1_Mid.wav",
+     "vcsl_note_name": "C4"
+    },
+    {
+     "file": "balafon/balafon_F5.ogg",
+     "note": "F5",
+     "root_midi": 77,
+     "tune_cents": 0,
+     "measured_detune_cents": 1,
+     "duration_s": 0.606,
+     "source_file": "Idiophones/Struck Idiophones/Balafon/Traditional Mallet/EthnicXylo_tradM_F4_vl2_rr1_Mid.wav",
+     "vcsl_note_name": "F4"
+    },
+    {
+     "file": "balafon/balafon_C6.ogg",
+     "note": "C6",
+     "root_midi": 84,
+     "tune_cents": 0,
+     "measured_detune_cents": -2,
+     "duration_s": 0.485,
+     "source_file": "Idiophones/Struck Idiophones/Balafon/Traditional Mallet/EthnicXylo_tradM_C5_vl2_rr1_Mid.wav",
+     "vcsl_note_name": "C5"
+    },
+    {
+     "file": "balafon/balafon_F6.ogg",
+     "note": "F6",
+     "root_midi": 89,
+     "tune_cents": 15,
+     "measured_detune_cents": -15,
+     "duration_s": 0.509,
+     "source_file": "Idiophones/Struck Idiophones/Balafon/Traditional Mallet/EthnicXylo_tradM_F5_vl2_rr1_Mid.wav",
+     "vcsl_note_name": "F5"
+    }
+   ],
+   "licence": "CC0 1.0",
+   "source": "VCSL - Versilian Community Sample Library",
+   "author": "Versilian Studios / Samuel Gossner",
+   "url": "https://github.com/sgossner/VCSL"
+  },
+  {
+   "id": "harp",
+   "name": "Concert Harp",
+   "category": "Plucked",
+   "source_folder": "Chordophones/Composite Chordophones/Concert Harp",
+   "velocity_layer": "mf",
+   "samples": [
+    {
+     "file": "harp/harp_B1.ogg",
+     "note": "B1",
+     "root_midi": 35,
+     "tune_cents": 28,
+     "measured_detune_cents": -28,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_B1_mf1.wav",
+     "vcsl_note_name": "B1"
+    },
+    {
+     "file": "harp/harp_D2.ogg",
+     "note": "D2",
+     "root_midi": 38,
+     "tune_cents": 12,
+     "measured_detune_cents": -12,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_D2_mf1.wav",
+     "vcsl_note_name": "D2"
+    },
+    {
+     "file": "harp/harp_F2.ogg",
+     "note": "F2",
+     "root_midi": 41,
+     "tune_cents": 10,
+     "measured_detune_cents": -10,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_F2_mf1.wav",
+     "vcsl_note_name": "F2"
+    },
+    {
+     "file": "harp/harp_A2.ogg",
+     "note": "A2",
+     "root_midi": 45,
+     "tune_cents": 7,
+     "measured_detune_cents": -7,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_A2_mf1.wav",
+     "vcsl_note_name": "A2"
+    },
+    {
+     "file": "harp/harp_C3.ogg",
+     "note": "C3",
+     "root_midi": 48,
+     "tune_cents": 0,
+     "measured_detune_cents": -3,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_C3_mf3.wav",
+     "vcsl_note_name": "C3"
+    },
+    {
+     "file": "harp/harp_E3.ogg",
+     "note": "E3",
+     "root_midi": 52,
+     "tune_cents": 6,
+     "measured_detune_cents": -6,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_E3_mf1.wav",
+     "vcsl_note_name": "E3"
+    },
+    {
+     "file": "harp/harp_G3.ogg",
+     "note": "G3",
+     "root_midi": 55,
+     "tune_cents": 11,
+     "measured_detune_cents": -11,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_G3_mf1.wav",
+     "vcsl_note_name": "G3"
+    },
+    {
+     "file": "harp/harp_B3.ogg",
+     "note": "B3",
+     "root_midi": 59,
+     "tune_cents": 14,
+     "measured_detune_cents": -14,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_B3_mf1.wav",
+     "vcsl_note_name": "B3"
+    },
+    {
+     "file": "harp/harp_D4.ogg",
+     "note": "D4",
+     "root_midi": 62,
+     "tune_cents": 13,
+     "measured_detune_cents": -13,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_D4_mf1.wav",
+     "vcsl_note_name": "D4"
+    },
+    {
+     "file": "harp/harp_F4.ogg",
+     "note": "F4",
+     "root_midi": 65,
+     "tune_cents": 0,
+     "measured_detune_cents": -1,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_F4_mf1.wav",
+     "vcsl_note_name": "F4"
+    },
+    {
+     "file": "harp/harp_A4.ogg",
+     "note": "A4",
+     "root_midi": 69,
+     "tune_cents": 9,
+     "measured_detune_cents": -9,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_A4_mf1.wav",
+     "vcsl_note_name": "A4"
+    },
+    {
+     "file": "harp/harp_C5.ogg",
+     "note": "C5",
+     "root_midi": 72,
+     "tune_cents": 12,
+     "measured_detune_cents": -12,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_C5_mf1.wav",
+     "vcsl_note_name": "C5"
+    },
+    {
+     "file": "harp/harp_E5.ogg",
+     "note": "E5",
+     "root_midi": 76,
+     "tune_cents": 11,
+     "measured_detune_cents": -11,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_E5_mf1.wav",
+     "vcsl_note_name": "E5"
+    },
+    {
+     "file": "harp/harp_G5.ogg",
+     "note": "G5",
+     "root_midi": 79,
+     "tune_cents": 5,
+     "measured_detune_cents": -5,
+     "duration_s": 3.0,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_G5_mf1.wav",
+     "vcsl_note_name": "G5"
+    },
+    {
+     "file": "harp/harp_B5.ogg",
+     "note": "B5",
+     "root_midi": 83,
+     "tune_cents": 9,
+     "measured_detune_cents": -9,
+     "duration_s": 2.348,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_B5_mf1.wav",
+     "vcsl_note_name": "B5"
+    },
+    {
+     "file": "harp/harp_D6.ogg",
+     "note": "D6",
+     "root_midi": 86,
+     "tune_cents": 7,
+     "measured_detune_cents": -7,
+     "duration_s": 1.741,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_D6_mf1.wav",
+     "vcsl_note_name": "D6"
+    },
+    {
+     "file": "harp/harp_F6.ogg",
+     "note": "F6",
+     "root_midi": 89,
+     "tune_cents": 6,
+     "measured_detune_cents": -6,
+     "duration_s": 2.045,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_F6_mf1.wav",
+     "vcsl_note_name": "F6"
+    },
+    {
+     "file": "harp/harp_A6.ogg",
+     "note": "A6",
+     "root_midi": 93,
+     "tune_cents": 19,
+     "measured_detune_cents": -19,
+     "duration_s": 1.189,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_A6_mf1.wav",
+     "vcsl_note_name": "A6"
+    },
+    {
+     "file": "harp/harp_B6.ogg",
+     "note": "B6",
+     "root_midi": 95,
+     "tune_cents": 11,
+     "measured_detune_cents": -11,
+     "duration_s": 0.924,
+     "source_file": "Chordophones/Composite Chordophones/Concert Harp/KSHarp_B6_mf1.wav",
+     "vcsl_note_name": "B6"
+    }
+   ],
+   "licence": "CC0 1.0",
+   "source": "VCSL - Versilian Community Sample Library",
+   "author": "Versilian Studios / Samuel Gossner",
+   "url": "https://github.com/sgossner/VCSL"
+  }
+ ]
+}

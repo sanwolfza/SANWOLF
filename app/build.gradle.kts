@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.sanwolf.daw"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
@@ -35,7 +35,10 @@ android {
     create("debugConfig") {
       val keystoreFile = file("${rootDir}/debug.keystore")
       if (keystoreFile.exists()) {
+        // Committed TEST key (PKCS12, see CHANGES.md): stable signature so test APKs
+        // install over each other. Public repo, so never use it for Play.
         storeFile = keystoreFile
+        storeType = "pkcs12"
         storePassword = "android"
         keyAlias = "androiddebugkey"
         keyPassword = "android"
@@ -48,9 +51,16 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      isDebuggable = false
       val releaseKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
-      if (releaseKeystore.exists()) {
-        signingConfig = signingConfigs.getByName("release")
+      signingConfig = if (releaseKeystore.exists()) {
+        signingConfigs.getByName("release")
+      } else {
+        // No upload keystore (local builds, CI without the keystore secret): sign the
+        // non-debuggable release APK with the debug key so it can be installed for testing.
+        // Such an APK must never be published to the Play Store.
+        val localDebugKeystore = file("${rootDir}/debug.keystore")
+        if (localDebugKeystore.exists()) signingConfigs.getByName("debugConfig") else signingConfigs.getByName("debug")
       }
     }
     debug {
@@ -69,6 +79,8 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  // Factory sample WAVs stay uncompressed in the APK so previews can stream them via openFd().
+  androidResources { noCompress += "wav" }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
@@ -117,6 +129,8 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.gson)
+  // MP3 export (pure-Java LAME port, LGPL-2.1+, unmodified jar). See Settings > About > licences.
+  implementation(libs.jump3r)
   implementation(libs.firebase.ai)
   implementation(libs.firebase.firestore)
 

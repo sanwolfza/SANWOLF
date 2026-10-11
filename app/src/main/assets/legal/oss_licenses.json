@@ -1,0 +1,273 @@
+{
+  "_comment": "Hand-maintained list of the libraries in app/build.gradle.kts (direct and notable transitive). Update this when dependencies change. Shown at Settings > About > Open-source licences.",
+  "licenceTexts": [
+    {
+      "id": "apache-2.0",
+      "name": "Apache License 2.0",
+      "asset": "legal/apache-2.0.txt"
+    },
+    {
+      "id": "lgpl-2.1",
+      "name": "GNU LGPL 2.1",
+      "asset": "legal/lgpl-2.1.txt"
+    },
+    {
+      "id": "bsd-3-clause-protobuf",
+      "name": "BSD 3-Clause (Protocol Buffers)",
+      "asset": "legal/bsd-3-clause-protobuf.txt"
+    }
+  ],
+  "libraries": [
+    {
+      "name": "Kotlin Standard Library",
+      "artifact": "org.jetbrains.kotlin:kotlin-stdlib",
+      "version": "2.2.10",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://kotlinlang.org",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Kotlinx Coroutines",
+      "artifact": "org.jetbrains.kotlinx:kotlinx-coroutines-core / -android",
+      "version": "1.10.2",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://github.com/Kotlin/kotlinx.coroutines",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Jetpack Compose (UI, Graphics, Tooling preview)",
+      "artifact": "androidx.compose.ui:ui, ui-graphics, ui-tooling-preview",
+      "version": "BOM 2024.09.00",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://developer.android.com/jetpack/compose",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Compose Material 3",
+      "artifact": "androidx.compose.material3:material3",
+      "version": "BOM 2024.09.00",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://developer.android.com/jetpack/androidx/releases/compose-material3",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Compose Material Icons (core and extended)",
+      "artifact": "androidx.compose.material:material-icons-core, material-icons-extended",
+      "version": "BOM 2024.09.00",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://fonts.google.com/icons",
+      "notes": "Material Design icons by Google.",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "AndroidX Core KTX",
+      "artifact": "androidx.core:core-ktx",
+      "version": "1.18.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://developer.android.com/jetpack/androidx/releases/core",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "AndroidX Activity Compose",
+      "artifact": "androidx.activity:activity-compose",
+      "version": "1.10.1",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://developer.android.com/jetpack/androidx/releases/activity",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "AndroidX Lifecycle (runtime, runtime-compose, viewmodel-compose)",
+      "artifact": "androidx.lifecycle:lifecycle-*",
+      "version": "2.8.7",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "AndroidX Room",
+      "artifact": "androidx.room:room-runtime, room-ktx",
+      "version": "2.7.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://developer.android.com/jetpack/androidx/releases/room",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "AndroidX Credentials",
+      "artifact": "androidx.credentials:credentials, credentials-play-services-auth",
+      "version": "1.5.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://developer.android.com/jetpack/androidx/releases/credentials",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Firebase Cloud Firestore",
+      "artifact": "com.google.firebase:firebase-firestore",
+      "version": "Firebase BOM 34.17.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://github.com/firebase/firebase-android-sdk",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Firebase AI Logic",
+      "artifact": "com.google.firebase:firebase-ai",
+      "version": "Firebase BOM 34.17.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://github.com/firebase/firebase-android-sdk",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Firebase App Check (reCAPTCHA, debug)",
+      "artifact": "com.google.firebase:firebase-appcheck-recaptcha, firebase-appcheck-debug",
+      "version": "Firebase BOM 34.17.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://github.com/firebase/firebase-android-sdk",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Firebase Authentication",
+      "artifact": "com.google.firebase:firebase-auth",
+      "version": "Firebase BOM 34.17.0",
+      "licence": "Android Software Development Kit License",
+      "licenceUrl": "https://developer.android.com/studio/terms",
+      "url": "https://firebase.google.com/docs/auth"
+    },
+    {
+      "name": "Google Identity (Sign in with Google)",
+      "artifact": "com.google.android.libraries.identity.googleid:googleid",
+      "version": "1.1.1",
+      "licence": "Android Software Development Kit License",
+      "licenceUrl": "https://developer.android.com/studio/terms",
+      "url": "https://developer.android.com/identity/sign-in/credential-manager-siwg"
+    },
+    {
+      "name": "Google Play services (transitive)",
+      "artifact": "com.google.android.gms:play-services-*",
+      "version": "via Firebase",
+      "licence": "Android Software Development Kit License",
+      "licenceUrl": "https://developer.android.com/studio/terms",
+      "url": "https://developers.google.com/android/guides/overview",
+      "notes": "Pulled in by Firebase and Credentials."
+    },
+    {
+      "name": "OkHttp and Logging Interceptor",
+      "artifact": "com.squareup.okhttp3:okhttp, logging-interceptor",
+      "version": "4.10.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://square.github.io/okhttp/",
+      "notes": "Copyright Square, Inc. Used for Gemini API requests.",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Okio (transitive)",
+      "artifact": "com.squareup.okio:okio",
+      "version": "via OkHttp",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://square.github.io/okio/",
+      "notes": "Copyright Square, Inc.",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Retrofit and Moshi converter",
+      "artifact": "com.squareup.retrofit2:retrofit, converter-moshi",
+      "version": "2.12.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://square.github.io/retrofit/",
+      "notes": "Copyright Square, Inc.",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Moshi Kotlin",
+      "artifact": "com.squareup.moshi:moshi-kotlin",
+      "version": "1.15.2",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://github.com/square/moshi",
+      "notes": "Copyright Square, Inc.",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Gson",
+      "artifact": "com.google.code.gson:gson",
+      "version": "2.11.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://github.com/google/gson",
+      "notes": "Copyright Google Inc.",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Coil for Compose",
+      "artifact": "io.coil-kt:coil-compose",
+      "version": "2.7.0",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://coil-kt.github.io/coil/",
+      "notes": "Copyright Coil Contributors.",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "gRPC Java (transitive)",
+      "artifact": "io.grpc:grpc-*",
+      "version": "via Firestore",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://github.com/grpc/grpc-java",
+      "notes": "Copyright The gRPC Authors.",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Guava (transitive)",
+      "artifact": "com.google.guava:guava",
+      "version": "via Firebase",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://github.com/google/guava",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Ktor client (transitive)",
+      "artifact": "io.ktor:ktor-client-*",
+      "version": "via Firebase AI Logic",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "url": "https://ktor.io",
+      "licenceText": "apache-2.0"
+    },
+    {
+      "name": "Protocol Buffers Java Lite (transitive)",
+      "artifact": "com.google.protobuf:protobuf-javalite",
+      "version": "via Firestore",
+      "licence": "BSD-3-Clause",
+      "licenceUrl": "https://github.com/protocolbuffers/protobuf/blob/main/LICENSE",
+      "url": "https://github.com/protocolbuffers/protobuf",
+      "notes": "Copyright 2008 Google Inc. All rights reserved.",
+      "licenceText": "bsd-3-clause-protobuf"
+    },
+    {
+      "name": "jump3r (Java port of LAME)",
+      "artifact": "de.sciss:jump3r",
+      "version": "1.0.5",
+      "licence": "LGPL-2.1-or-later",
+      "licenceUrl": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html",
+      "url": "https://git.iem.at/sciss/jump3r",
+      "notes": "Used for MP3 export. Included unmodified as a separate library; its source code is available from the project page and on Maven Central. You may replace it with a modified version under the LGPL.",
+      "licenceText": "lgpl-2.1"
+    }
+  ]
+}
