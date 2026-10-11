@@ -46,6 +46,7 @@ import com.sanwolf.daw.audio.LoudnessMeter
 import com.sanwolf.daw.audio.SanwolfAudioEngine
 import com.sanwolf.daw.audio.WavExporter
 import com.sanwolf.daw.model.ProjectData
+import com.sanwolf.daw.model.TrackType
 import com.sanwolf.daw.ui.theme.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -338,6 +339,14 @@ fun MasteringAssistantCard(
                             .padding(horizontal = 6.dp, vertical = 4.dp)
                     )
                 }
+            }
+
+            if (project.tracks.any { it.type == TrackType.AUDIO_IMPORT && !it.muted }) {
+                Text(
+                    "Audio-clip tracks play outside the master bus live, so they aren't in this reading. Export once to include them.",
+                    fontSize = 9.sp,
+                    color = SanwolfTextMuted
+                )
             }
 
             val canSuggest = m.hasLoudness && !locked
