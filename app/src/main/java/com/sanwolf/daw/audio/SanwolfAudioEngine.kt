@@ -94,6 +94,20 @@ class SanwolfAudioEngine(private val context: Context) {
     /** Short-term loudness (3 s window), LUFS. */
     @Volatile
     var masterShortTermLufs = LoudnessMeter.SILENCE_LUFS
+    /**
+     * Rough spectral balance of the master output for the mastering assistant: mean-square
+     * energy (dBFS, smoothed per block) below ~150 Hz, between, and above ~5 kHz. One-pole
+     * splits on the mono sum, so only a coarse tilt reading, not an analyser.
+     */
+    @Volatile
+    var masterLowBandDb = -90f
+    @Volatile
+    var masterMidBandDb = -90f
+    @Volatile
+    var masterHighBandDb = -90f
+    /** Largest absolute output sample of the last block (unsmoothed, linear, post limiter). */
+    @Volatile
+    var masterBlockPeak = 0f
     val voiceManager = VoiceManager()
 
     // Media players for imported audio stem playback
@@ -269,6 +283,11 @@ class SanwolfAudioEngine(private val context: Context) {
         val bandSize = BUFFER_SIZE / 8
 
         val grScratch = FloatArray(2)
+        // Spectral balance splits (mastering assistant): state persists across blocks
+        val balLowAlpha = (1.0 - kotlin.math.exp(-2.0 * Math.PI * 150.0 / SAMPLE_RATE)).toFloat()
+        val balHighAlpha = (1.0 - kotlin.math.exp(-2.0 * Math.PI * 5000.0 / SAMPLE_RATE)).toFloat()
+        var balLowLp = 0f
+        var balHighLp = 0f
         // Per-track insert rack buses and scratch frames
         val busSet = FxBusSet(FxRackPlan.MAX_TRACK_BUSES, BUFFER_SIZE)
         val fxIo = FloatArray(2)
@@ -406,6 +425,9 @@ class SanwolfAudioEngine(private val context: Context) {
             var sumLL = 0f
             var sumRR = 0f
             var goniometerSampleIdx = 0
+            var sumLow = 0f
+            var sumMid = 0f
+            var sumHigh = 0f
             var gonioCountdown = 0
 
             val masterInserts = plan.master
@@ -423,6 +445,15 @@ class SanwolfAudioEngine(private val context: Context) {
                 val sampleL = limited[0]
                 val sampleR = limited[1]
                 loudnessMeter.process(sampleL, sampleR)
+
+                val mono = (sampleL + sampleR) * 0.5f
+                balLowLp += balLowAlpha * (mono - balLowLp)
+                balHighLp += balHighAlpha * (mono - balHighLp)
+                val bandHigh = mono - balHighLp
+                val bandMid = mono - balLowLp - bandHigh
+                sumLow += balLowLp * balLowLp
+                sumMid += bandMid * bandMid
+                sumHigh += bandHigh * bandHigh
 
                 sumLR += sampleL * sampleR
                 sumLL += sampleL * sampleL
@@ -474,6 +505,10 @@ class SanwolfAudioEngine(private val context: Context) {
             masterRmsDb = masterRmsDb * 0.8f + rmsDb * 0.2f
             masterMomentaryLufs = loudnessMeter.momentaryLufs
             masterShortTermLufs = loudnessMeter.shortTermLufs
+            masterLowBandDb = smoothBandDb(masterLowBandDb, sumLow)
+            masterMidBandDb = smoothBandDb(masterMidBandDb, sumMid)
+            masterHighBandDb = smoothBandDb(masterHighBandDb, sumHigh)
+            masterBlockPeak = if (maxLeft > maxRight) maxLeft else maxRight
             currentPeakLeft = currentPeakLeft * 0.7f + maxLeft * 0.3f
             currentPeakRight = currentPeakRight * 0.7f + maxRight * 0.3f
 
@@ -507,6 +542,17 @@ class SanwolfAudioEngine(private val context: Context) {
         compressorReductionDb *= 0.6f
         limiterReductionDb *= 0.6f
         masterRmsDb = maxOf(-90f, masterRmsDb - 3f)
+        masterLowBandDb = maxOf(-90f, masterLowBandDb - 3f)
+        masterMidBandDb = maxOf(-90f, masterMidBandDb - 3f)
+        masterHighBandDb = maxOf(-90f, masterHighBandDb - 3f)
+        masterBlockPeak = 0f
+    }
+
+    /** One block of band energy (sum of squares over BUFFER_SIZE frames) into a smoothed dBFS reading. */
+    private fun smoothBandDb(previous: Float, sumSquares: Float): Float {
+        val ms = sumSquares / BUFFER_SIZE
+        val db = if (ms > 1e-9f) 10f * kotlin.math.log10(ms) else -90f
+        return previous * 0.8f + db * 0.2f
     }
 
     /**

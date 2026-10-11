@@ -168,6 +168,13 @@ fun RightMixerPanel(
                         onRackParamsCommitted = onRackParamsCommitted
                     )
                     RightPanelTab.MASTER -> {
+                        MasteringAssistantCard(
+                            project = project,
+                            audioEngine = audioEngine,
+                            isVisible = isExpanded,
+                            onApplied = onMasteringChanged,
+                            onMasterVolumeChange = onMasterVolumeChange
+                        )
                         FxRackView(
                             title = "Master inserts",
                             slots = project.masterSlots(),
@@ -179,6 +186,7 @@ fun RightMixerPanel(
                         )
                         MasterSection(
                             project = project,
+                            revision = revision,
                             onMasteringChanged = onMasteringChanged,
                             onMasterVolumeChange = onMasterVolumeChange
                         )
@@ -548,12 +556,14 @@ fun TrackMixerStrip(
 @Composable
 private fun MasterSection(
     project: ProjectData,
+    revision: Int,
     onMasteringChanged: () -> Unit,
     onMasterVolumeChange: (Float) -> Unit
 ) {
-    // project.masteringConfig is a plain object: bump this to redraw after edits
+    // project.masteringConfig is a plain object: bump this to redraw after edits. [revision]
+    // (projectVersion) redraws after outside edits, e.g. the mastering assistant's Apply.
     var uiTick by remember { mutableIntStateOf(0) }
-    @Suppress("UNUSED_VARIABLE") val tick = uiTick
+    @Suppress("UNUSED_VARIABLE") val tick = uiTick + revision
     var chainOpen by remember { mutableStateOf(true) }
     val config: MasteringConfig = project.masteringConfig
     val bypassed = !config.enabled

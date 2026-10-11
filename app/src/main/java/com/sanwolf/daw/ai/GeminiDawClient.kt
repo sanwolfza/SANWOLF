@@ -995,7 +995,64 @@ class GeminiDawClient {
             arrangedTracks = updatedTracks
         )
     }
+
+    /** True when a real Gemini key was injected at build time (not the .env.example placeholder). */
+    fun hasApiKey(): Boolean {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        return apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY"
+    }
+
+    /**
+     * Mastering assistant (right panel › Master). Sends [prompt] (instructions + a compact JSON
+     * summary of the mix) to gemini-3.5-flash with a JSON response type and returns the model's
+     * raw JSON text. Unlike the other calls this one does NOT fall back silently: it throws
+     * [GeminiUnavailableException] (no key, offline, HTTP error, empty answer) so the UI can say
+     * why and offer the local rule-based suggestion instead. Validation happens in the caller.
+     */
+    suspend fun requestMasteringSuggestion(prompt: String): String = withContext(Dispatchers.IO) {
+        if (!hasApiKey()) throw GeminiUnavailableException("No Gemini API key in this build")
+        val requestBodyJson = JSONObject().apply {
+            put("contents", JSONArray().put(JSONObject().apply {
+                put("parts", JSONArray().put(JSONObject().apply { put("text", prompt) }))
+            }))
+            put("generationConfig", JSONObject().apply {
+                put("responseMimeType", "application/json")
+                put("temperature", 0.3)
+            })
+        }
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${BuildConfig.GEMINI_API_KEY}"
+        val request = Request.Builder()
+            .url(url)
+            .post(requestBodyJson.toString().toRequestBody(jsonMediaType))
+            .build()
+        val (code, responseText) = try {
+            client.newCall(request).execute().use { response ->
+                Pair(response.code, response.body?.string().orEmpty())
+            }
+        } catch (e: java.io.IOException) {
+            // UnknownHostException / timeouts: offline or unreachable. Never log the URL (it holds the key).
+            Log.w(GEMINI_TAG, "Mastering assistant request failed: ${e.javaClass.simpleName}")
+            throw GeminiUnavailableException("Can't reach Gemini (offline?)", e)
+        }
+        if (code !in 200..299) {
+            Log.w(GEMINI_TAG, "Mastering assistant HTTP $code")
+            throw GeminiUnavailableException("Gemini returned HTTP $code")
+        }
+        val text = try {
+            JSONObject(responseText)
+                .optJSONArray("candidates")?.optJSONObject(0)
+                ?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)
+                ?.optString("text").orEmpty()
+        } catch (e: org.json.JSONException) {
+            ""
+        }
+        if (text.isBlank()) throw GeminiUnavailableException("Gemini sent an empty answer")
+        text
+    }
 }
+
+/** Gemini could not be used for this request; [message] is short and safe to show the user. */
+class GeminiUnavailableException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 data class TrackFinishingResult(
     val analysis: String,
