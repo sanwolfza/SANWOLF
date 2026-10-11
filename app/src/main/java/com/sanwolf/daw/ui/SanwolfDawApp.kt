@@ -103,9 +103,14 @@ fun SanwolfDawApp() {
     var projectVersion by vm.projectVersion
     val project = vm.project
 
+    // UndoRedoManager is not Compose state. Bumped after every saveState so the strip's
+    // Undo/Redo enabled state recomposes (saveState runs after the composition that bumped projectVersion).
+    var undoHistoryTick by remember { mutableIntStateOf(0) }
+
     LaunchedEffect(projectVersion) {
         undoRedoManager.saveState(project)
         audioEngine.currentProject = project
+        undoHistoryTick++
     }
 
     // Engines are released in DawViewModel.onCleared(), not when this composable leaves.
@@ -1156,6 +1161,21 @@ fun SanwolfDawApp() {
                 bpm = project.bpm,
                 beatsPerBar = project.timeSignatureNumerator,
                 isMetronomeOn = isMetronomeEnabled,
+                canUndo = remember(undoHistoryTick, projectVersion) { undoRedoManager.canUndo() },
+                canRedo = remember(undoHistoryTick, projectVersion) { undoRedoManager.canRedo() },
+                // undo()/redo() return a snapshot; restoreSnapshot copies it in without stopping playback
+                onUndo = {
+                    val snapshot = undoRedoManager.undo(project)
+                    if (snapshot != null) restoreSnapshot(snapshot)
+                    else Toast.makeText(context, "Nothing to undo", Toast.LENGTH_SHORT).show()
+                    undoHistoryTick++
+                },
+                onRedo = {
+                    val snapshot = undoRedoManager.redo(project)
+                    if (snapshot != null) restoreSnapshot(snapshot)
+                    else Toast.makeText(context, "Nothing to redo", Toast.LENGTH_SHORT).show()
+                    undoHistoryTick++
+                },
                 onPlayToggle = {
                     if (audioEngine.isPlaying) audioEngine.pause() else audioEngine.play()
                 },

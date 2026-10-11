@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -55,7 +57,7 @@ private const val MAX_BPM = 300
 
 /**
  * Bottom live piano. A fixed ("stand still") transport strip that never scrolls or collapses:
- * Play/Pause, Stop, Record-the-keys, BPM -/+ (hold to repeat, tap the number to type it),
+ * Play/Pause, Stop, Record-the-keys, Undo/Redo, BPM -/+ (hold to repeat, tap the number to type it),
  * metronome, playhead position and a show/hide-keys arrow. The keys sit underneath; hiding the
  * piano hides only the keys. Octave, range, key size and velocity live in the right panel's
  * Keys tab ([PianoKeyboardSettings]).
@@ -72,6 +74,8 @@ fun LivePianoBar(
     bpm: Int = 120,
     beatsPerBar: Int = 4,
     isMetronomeOn: Boolean = false,
+    canUndo: Boolean = false,
+    canRedo: Boolean = false,
     onPlayToggle: () -> Unit = {},
     onStop: () -> Unit = {},
     onPianoRecordToggle: () -> Unit = {},
@@ -81,6 +85,8 @@ fun LivePianoBar(
     onBpmCommit: () -> Unit = {},
     onMetronomeToggle: () -> Unit = {},
     onOpenKeyboardSettings: () -> Unit = {},
+    onUndo: () -> Unit = {},
+    onRedo: () -> Unit = {},
     onKeyDown: (pitch: Int) -> Unit = {},
     onKeyUp: (pitch: Int) -> Unit = {}
 ) {
@@ -113,6 +119,8 @@ fun LivePianoBar(
             beatsPerBar = beatsPerBar,
             isMetronomeOn = isMetronomeOn,
             keysVisible = settings.keysVisible,
+            canUndo = canUndo,
+            canRedo = canRedo,
             onPlayToggle = onPlayToggle,
             onStop = onStop,
             onPianoRecordToggle = onPianoRecordToggle,
@@ -120,7 +128,9 @@ fun LivePianoBar(
             onBpmCommit = onBpmCommit,
             onMetronomeToggle = onMetronomeToggle,
             onToggleKeys = { settings.toggleKeys() },
-            onOpenKeyboardSettings = onOpenKeyboardSettings
+            onOpenKeyboardSettings = onOpenKeyboardSettings,
+            onUndo = onUndo,
+            onRedo = onRedo
         )
 
         // --- Keys: white keys share the width, black keys sit on top ---
@@ -209,6 +219,8 @@ private fun PianoTransportStrip(
     beatsPerBar: Int,
     isMetronomeOn: Boolean,
     keysVisible: Boolean,
+    canUndo: Boolean,
+    canRedo: Boolean,
     onPlayToggle: () -> Unit,
     onStop: () -> Unit,
     onPianoRecordToggle: () -> Unit,
@@ -216,7 +228,9 @@ private fun PianoTransportStrip(
     onBpmCommit: () -> Unit,
     onMetronomeToggle: () -> Unit,
     onToggleKeys: () -> Unit,
-    onOpenKeyboardSettings: () -> Unit
+    onOpenKeyboardSettings: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit
 ) {
     // project.bpm is not Compose state: keep what we show here and resync when the parent changes it
     var shownBpm by remember(bpm) { mutableIntStateOf(bpm.coerceIn(MIN_BPM, MAX_BPM)) }
@@ -283,6 +297,25 @@ private fun PianoTransportStrip(
             onClick = onPianoRecordToggle,
             tag = "strip_piano_record"
         )
+
+        // Undo / Redo: one slim pill, dimmed and inert when there is nothing to undo / redo
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .height(30.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(SanwolfPanelElevated)
+                .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(6.dp))
+        ) {
+            HistoryStepButton(Icons.AutoMirrored.Filled.Undo, "Undo", canUndo, onUndo, "strip_undo")
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .background(SanwolfPanelBorder)
+            )
+            HistoryStepButton(Icons.AutoMirrored.Filled.Redo, "Redo", canRedo, onRedo, "strip_redo")
+        }
 
         // Tempo: -  128  +   (hold -/+ to repeat, tap the number to type)
         Row(
@@ -397,6 +430,33 @@ private fun StripIconButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+    }
+}
+
+/** One half of the Undo/Redo pill. Disabled: muted icon, no click. */
+@Composable
+private fun HistoryStepButton(
+    icon: ImageVector,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    tag: String
+) {
+    Box(
+        modifier = Modifier
+            .width(28.dp)
+            .fillMaxHeight()
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = if (enabled) description else "$description (nothing to ${description.lowercase()})" }
+            .testTag(tag),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (enabled) SanwolfTextPrimary else SanwolfTextMuted.copy(alpha = 0.5f),
+            modifier = Modifier.size(16.dp)
+        )
     }
 }
 
