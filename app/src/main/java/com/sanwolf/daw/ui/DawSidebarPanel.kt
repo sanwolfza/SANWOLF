@@ -78,7 +78,7 @@ enum class SidebarTab(val title: String, val icon: ImageVector) {
 }
 
 /**
- * Left drawer: a slim icon rail that is always visible (outside focus mode) plus an
+ * Left drawer: a slim icon rail plus an
  * animated panel (a fraction of the screen width, capped at Dimens.sidePanelMax) for the selected section. Tapping a rail icon opens that section;
  * tapping the open section's icon again collapses the panel.
  */
@@ -141,7 +141,7 @@ fun DawSidebarPanel(
             .fillMaxHeight()
             .testTag("daw_sidebar")
     ) {
-        // --- Icon rail (always visible) ---
+        // --- Icon rail (shown while the drawer is open; collapsing hides rail + panel, see SanwolfDawApp) ---
         Column(
             modifier = Modifier
                 .width(Dimens.railWidth)

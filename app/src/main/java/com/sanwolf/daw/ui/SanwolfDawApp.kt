@@ -119,13 +119,20 @@ fun SanwolfDawApp() {
     var isFocusMode by remember { mutableStateOf(false) } // Disappearing windows immersion toggle
     var selectedTrackIndex by vm.selectedTrackIndex
     var isRecordingAudio by remember { mutableStateOf(false) }
-    // Left drawer: icon rail + collapsible panel (state survives recomposition / recreation)
-    var isSidebarExpanded by rememberSaveable { mutableStateOf(true) }
+    // Left drawer: icon rail + panel. Collapsed = gone entirely (an 18dp edge tab re-opens it).
+    // Open/closed is remembered across launches.
+    var isSidebarExpanded by remember { mutableStateOf(dawPrefs.getBoolean(PREF_LEFT_PANEL_OPEN, true)) }
     var sidebarTabName by rememberSaveable { mutableStateOf(SidebarTab.PROJECT.name) }
     val sidebarTab = runCatching { SidebarTab.valueOf(sidebarTabName) }.getOrDefault(SidebarTab.PROJECT)
     var isPianoKeyboardExpanded by remember { mutableStateOf(true) }
-    // Right mastering hub: icon rail + collapsible panel (survives recreation like the left drawer)
-    var isRightMixerExpanded by rememberSaveable { mutableStateOf(false) }
+    // Right mastering hub: icon rail + panel. Collapsed = gone entirely, like the left drawer.
+    var isRightMixerExpanded by remember { mutableStateOf(dawPrefs.getBoolean(PREF_RIGHT_PANEL_OPEN, false)) }
+    LaunchedEffect(isSidebarExpanded, isRightMixerExpanded) {
+        dawPrefs.edit()
+            .putBoolean(PREF_LEFT_PANEL_OPEN, isSidebarExpanded)
+            .putBoolean(PREF_RIGHT_PANEL_OPEN, isRightMixerExpanded)
+            .apply()
+    }
     var rightPanelTabName by rememberSaveable { mutableStateOf(RightPanelTab.MIXER.name) }
     val rightPanelTab = runCatching { RightPanelTab.valueOf(rightPanelTabName) }.getOrDefault(RightPanelTab.MIXER)
 
@@ -600,10 +607,11 @@ fun SanwolfDawApp() {
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                // Left drawer: icon rail + collapsible project / samples / song / settings hub.
-                // Focus mode hides it completely; the toolbar menu button brings it back.
+                // Left drawer: icon rail + project / samples / song / settings hub.
+                // Collapsed (or focus mode) it takes no width at all: the rail goes too, and an
+                // edge tab over the workspace (or the toolbar menu button) brings it back.
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = !isFocusMode,
+                    visible = !isFocusMode && isSidebarExpanded,
                     enter = androidx.compose.animation.slideInHorizontally(initialOffsetX = { -it }) + androidx.compose.animation.fadeIn(),
                     exit = androidx.compose.animation.slideOutHorizontally(targetOffsetX = { -it }) + androidx.compose.animation.fadeOut()
                 ) {
@@ -1005,6 +1013,24 @@ fun SanwolfDawApp() {
                         // Merged inside AI Studio dialog
                     }
                 }
+
+                // Edge tabs for collapsed side panels: overlaid, so they reserve no layout space
+                if (!isFocusMode && !isSidebarExpanded) {
+                    EdgeHandle(
+                        onStartEdge = true,
+                        description = "Open side panel",
+                        onClick = { isSidebarExpanded = true },
+                        modifier = Modifier.align(Alignment.CenterStart)
+                    )
+                }
+                if (!isFocusMode && !isRightMixerExpanded) {
+                    EdgeHandle(
+                        onStartEdge = false,
+                        description = "Open mixer and mastering panel",
+                        onClick = { isRightMixerExpanded = true },
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    )
+                }
             }
 
             // --- Collapsible Live Piano Keyboard Bottom Dock ---
@@ -1052,7 +1078,12 @@ fun SanwolfDawApp() {
             )
         }
 
-        // Right Collapsible Mixer Panel
+        // Right mixer / mastering hub. Collapsed it takes no width (rail included); the edge tab re-opens it.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = isRightMixerExpanded && !isFocusMode,
+            enter = androidx.compose.animation.slideInHorizontally(initialOffsetX = { it }) + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.slideOutHorizontally(targetOffsetX = { it }) + androidx.compose.animation.fadeOut()
+        ) {
         RightMixerPanel(
             project = project,
             audioEngine = audioEngine,
@@ -1090,6 +1121,7 @@ fun SanwolfDawApp() {
                 audioEngine.updateStemMuteSolo(project)
             }
         )
+        }
     }
 }
 
@@ -1329,3 +1361,5 @@ fun SanwolfDawApp() {
     }
 }
 
+private const val PREF_LEFT_PANEL_OPEN = "left_panel_open"
+private const val PREF_RIGHT_PANEL_OPEN = "right_panel_open"
