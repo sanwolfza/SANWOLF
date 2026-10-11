@@ -13,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.sanwolf.daw.ui.CrashReportPrompt
 import com.sanwolf.daw.ui.SanwolfDawApp
 import com.sanwolf.daw.ui.SanwolfSplashGate
 import com.sanwolf.daw.ui.theme.LocalUiSizeState
@@ -53,6 +54,8 @@ class MainActivity : ComponentActivity() {
                     MyApplicationTheme {
                         // Branded loading screen on cold start, then the DAW (ui/SplashScreens.kt)
                         SanwolfSplashGate { SanwolfDawApp() }
+                        // Report from the previous session's crash, if any (Copy / Share / Dismiss)
+                        CrashReportPrompt()
                     }
                 }
             }

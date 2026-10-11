@@ -91,7 +91,7 @@ fun ExportDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
 
     var format by remember { mutableStateOf(ExportFormat.WAV) }
     var audioFormat by remember { mutableStateOf(ExportAudioFormat.WAV_24) }
@@ -330,6 +330,7 @@ fun ExportDialog(
                             val tags = ExportTags(title = project.title, artist = project.artist.ifBlank { "SANWOLF" })
                             val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US).format(java.util.Date())
                             val baseName = com.sanwolf.daw.data.ProjectBundle.safeFileName(project.title) + "_" + stamp
+                            com.sanwolf.daw.CrashReporter.breadcrumb("export ${chosenFormat.name} ${if (chosenFormat == ExportFormat.WAV) chosenAudio.label else ""} (${project.tracks.size} tracks)")
                             isRendering = true
                             progress = 0f
                             exportedFile = null

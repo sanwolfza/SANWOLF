@@ -1474,7 +1474,7 @@ fun ExportPianoRollSequenceDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
     var isExporting by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var exportedFile by remember { mutableStateOf<File?>(null) }

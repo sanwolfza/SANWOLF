@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import com.sanwolf.daw.firebase.FirebaseDawManager
 import com.sanwolf.daw.model.ProjectData
+import com.sanwolf.daw.model.normalizeTracks
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
@@ -72,7 +73,8 @@ class ProjectManager(
     fun toJson(project: ProjectData): String = gson.toJson(project)
 
     fun fromJson(json: String): ProjectData =
-        gson.fromJson(json, ProjectData::class.java) ?: throw IllegalStateException("Project file is empty")
+        (gson.fromJson(json, ProjectData::class.java) ?: throw IllegalStateException("Project file is empty"))
+            .normalizeTracks()
 
     /**
      * Writes already-serialized JSON for [fileId]. Audio referenced through content:// URIs is

@@ -92,7 +92,7 @@ fun ProjectSection(
     onOpenCloudSync: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
 
     var projects by remember { mutableStateOf<List<LocalProjectSummary>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }

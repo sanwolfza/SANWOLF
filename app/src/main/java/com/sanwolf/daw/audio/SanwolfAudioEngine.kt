@@ -261,7 +261,16 @@ class SanwolfAudioEngine(private val context: Context) {
     private fun startAudioThread() {
         if (running) return
         running = true
-        audioThread = Thread({ audioLoop() }, "SanwolfAudio").apply {
+        audioThread = Thread({
+            try {
+                audioLoop()
+            } catch (t: Throwable) {
+                // Last line of defence: stop audio instead of crashing the app
+                Log.e(TAG, "Audio thread died", t)
+                com.sanwolf.daw.CrashReporter.breadcrumb("audio thread died: ${t.javaClass.simpleName}: ${t.message}")
+                running = false
+            }
+        }, "SanwolfAudio").apply {
             priority = Thread.MAX_PRIORITY
             start()
         }
@@ -524,11 +533,22 @@ class SanwolfAudioEngine(private val context: Context) {
             outputSilent = blockSilent
 
             writeFully(track, audioBuffer)
-            } catch (e: Exception) {
-                // Never let one bad block kill the audio thread
+            } catch (e: Throwable) {
+                // Never let one bad block kill the audio thread (an uncaught throwable here would
+                // take the whole process down): log it, leave a breadcrumb, output silence.
                 Log.e(TAG, "Audio block failed", e)
+                com.sanwolf.daw.CrashReporter.breadcrumb("audio block failed: ${e.javaClass.simpleName}: ${e.message}")
                 outputSilent = false
-                writeFully(track, silence)
+                try {
+                    writeFully(track, silence)
+                } catch (w: Throwable) {
+                    Log.e(TAG, "Silence write failed", w)
+                    SystemClock.sleep(20)
+                }
+                if (e is OutOfMemoryError) {
+                    runCatching { PcmSampleCache.trim() }
+                    runCatching { MultisampleLibrary.trim() }
+                }
             }
         }
     }
@@ -820,7 +840,7 @@ class SanwolfAudioEngine(private val context: Context) {
                             voice.nextSample()
                             n++
                         }
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         Log.w(TAG, "Prewarm failed for $instrument", e)
                     }
                 }
@@ -918,7 +938,7 @@ class SanwolfAudioEngine(private val context: Context) {
         stemHandler.post {
             try {
                 action()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.w(TAG, "Stem transport call failed", e)
             }
         }

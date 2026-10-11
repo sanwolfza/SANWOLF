@@ -301,8 +301,14 @@ object MultisampleLibrary {
         if (inst.loadFailed) return
         runCatching {
             loader.execute {
-                loadBlocking(inst)
-                if (inst.isReady) onReady?.invoke()
+                // A throwable escaping an executor task kills the process: contain it here
+                try {
+                    loadBlocking(inst)
+                    if (inst.isReady) onReady?.invoke()
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Prewarm of ${inst.spec.name} failed", t)
+                    inst.loadFailed = true
+                }
             }
         }.onFailure { Log.w(TAG, "Prewarm not scheduled for ${inst.spec.name}", it) }
     }
@@ -314,6 +320,9 @@ object MultisampleLibrary {
             loader.execute {
                 try {
                     loadBlocking(inst)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Load of ${inst.spec.name} failed", t)
+                    inst.loadFailed = true
                 } finally {
                     inst.loading.set(false)
                 }

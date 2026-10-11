@@ -77,7 +77,7 @@ fun CloudSyncDialog(
     onProjectSaved: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
     var isLoading by remember { mutableStateOf(false) }
     var cloudStatus by remember { mutableStateOf<String?>(null) }
     var cloudProjects by remember { mutableStateOf<List<CloudProjectSummary>>(emptyList()) }

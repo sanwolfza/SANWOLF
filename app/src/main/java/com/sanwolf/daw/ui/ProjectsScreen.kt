@@ -150,7 +150,7 @@ fun rememberSanwolfFileActions(
     onImported: (fileId: String) -> Unit
 ): SanwolfFileActions {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
     var pendingSave by remember { mutableStateOf<File?>(null) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -214,7 +214,7 @@ fun ProjectsScreenDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
     var projects by remember { mutableStateOf<List<LocalProjectSummary>?>(null) }
     var localRefresh by remember { mutableIntStateOf(0) }
     var renameTarget by remember { mutableStateOf<LocalProjectSummary?>(null) }

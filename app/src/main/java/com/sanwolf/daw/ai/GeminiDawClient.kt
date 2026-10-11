@@ -37,6 +37,7 @@ class GeminiDawClient {
         project: ProjectData,
         userInstruction: String
     ): TrackFinishingResult = withContext(Dispatchers.IO) {
+        com.sanwolf.daw.CrashReporter.breadcrumb("AI call: finishTrackWithHighThinking")
         val prompt = buildString {
             appendLine("You are an expert music producer and audio engineer assisting in SANWOLF DAW.")
             appendLine("Analyze this unfinished project and provide new track elements to complete it.")
@@ -107,6 +108,7 @@ class GeminiDawClient {
         sourceGenre: String,
         desiredStyle: String
     ): TrackCloneResult = withContext(Dispatchers.IO) {
+        com.sanwolf.daw.CrashReporter.breadcrumb("AI call: cloneAndReMasterTrack")
         val prompt = """
             You are SANWOLF AI Audio Engineer.
             We want to CLONE and REMASTER the track '$sourceTrackName' (Genre: $sourceGenre) into style: '$desiredStyle'.
@@ -237,6 +239,7 @@ class GeminiDawClient {
         prompt: String,
         isProFullLength: Boolean = false
     ): LyriaMusicResult = withContext(Dispatchers.IO) {
+        com.sanwolf.daw.CrashReporter.breadcrumb("AI call: generateMusicWithLyria")
         val model = if (isProFullLength) "lyria-3-pro-preview" else "lyria-3-clip-preview"
         val apiKey = BuildConfig.GEMINI_API_KEY
 
@@ -310,6 +313,7 @@ class GeminiDawClient {
     suspend fun generateModularPatchWithFlash(
         description: String
     ): ModularGraph = withContext(Dispatchers.IO) {
+        com.sanwolf.daw.CrashReporter.breadcrumb("AI call: generateModularPatchWithFlash")
         val apiKey = BuildConfig.GEMINI_API_KEY
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
             return@withContext createDefaultModularGraph(description)
@@ -497,6 +501,7 @@ class GeminiDawClient {
         includeLyriaAudio: Boolean = false,
         isProAudio: Boolean = false
     ): FullMusicGenerationResult = withContext(Dispatchers.IO) {
+        com.sanwolf.daw.CrashReporter.breadcrumb("AI call: generateMusicByParameters")
         val apiKey = BuildConfig.GEMINI_API_KEY
         val prompt = buildString {
             appendLine("You are the master AI music composer for SANWOLF DAW.")
@@ -957,6 +962,7 @@ class GeminiDawClient {
         project: ProjectData,
         userInstruction: String
     ): ArrangementResult = withContext(Dispatchers.IO) {
+        com.sanwolf.daw.CrashReporter.breadcrumb("AI call: coProducerAutoArrange")
         val updatedTracks = project.tracks.map { track ->
             val newNotes = track.notes.toMutableList()
             if (track.type == TrackType.SYNTH || track.type == TrackType.MODULAR_SYNTH) {
@@ -972,19 +978,16 @@ class GeminiDawClient {
                 if (newNotes.none { it.startBeat >= 48.0 }) {
                     newNotes.add(MidiNote(pitch = 60, startBeat = 48.0, lengthBeats = 16.0, velocity = 0.5f))
                 }
-            } else if (track.type == TrackType.DRUM_MACHINE) {
-                track.stepCount = 64
-                for (i in 0 until 64) {
-                    if (i < 16) {
-                        track.steps[i] = (i % 8 == 0)
-                    } else if (i in 16..47) {
-                        track.steps[i] = (i % 4 == 0 || i % 8 == 6)
-                    } else {
-                        track.steps[i] = (i % 16 == 0)
-                    }
-                }
             }
-            track.copy(notes = newNotes)
+            if (track.type == TrackType.DRUM_MACHINE) {
+                // New arrays: never write into the live project from this background thread.
+                val newSteps = BooleanArray(64) { i ->
+                    if (i < 16) i % 8 == 0 else if (i in 16..47) (i % 4 == 0 || i % 8 == 6) else i % 16 == 0
+                }
+                track.copy(notes = newNotes, steps = newSteps, stepCount = 64)
+            } else {
+                track.copy(notes = newNotes)
+            }
         }
 
         ArrangementResult(
@@ -1010,6 +1013,7 @@ class GeminiDawClient {
      * why and offer the local rule-based suggestion instead. Validation happens in the caller.
      */
     suspend fun requestMasteringSuggestion(prompt: String): String = withContext(Dispatchers.IO) {
+        com.sanwolf.daw.CrashReporter.breadcrumb("AI call: requestMasteringSuggestion")
         if (!hasApiKey()) throw GeminiUnavailableException("No Gemini API key in this build")
         val requestBodyJson = JSONObject().apply {
             put("contents", JSONArray().put(JSONObject().apply {

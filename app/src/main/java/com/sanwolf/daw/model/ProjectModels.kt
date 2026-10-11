@@ -203,8 +203,10 @@ data class TrackData(
     var muted: Boolean = false,
     var solo: Boolean = false,
     var stepCount: Int = 16, // Supports 16, 20, 24, 32, 48, 64 steps and polyrhythms
-    val steps: BooleanArray = BooleanArray(64),
-    val stepVelocities: FloatArray = FloatArray(64) { 0.8f },
+    // Always MAX_PATTERN_STEPS long (see normalizeSteps): editors index up to 63 regardless of
+    // stepCount. vars only so normalizeSteps can replace a short array from old saves / AI output.
+    var steps: BooleanArray = BooleanArray(MAX_PATTERN_STEPS),
+    var stepVelocities: FloatArray = FloatArray(MAX_PATTERN_STEPS) { 0.8f },
     val notes: MutableList<MidiNote> = mutableListOf(),
     val fxChain: MutableList<VstPlugin> = mutableListOf(),
     var modularGraph: ModularGraph? = null,
@@ -241,6 +243,45 @@ data class TrackData(
      */
     var fxRack: MutableList<FxSlot>? = null
 ) {
+    init {
+        normalizeSteps()
+    }
+
+    /**
+     * Pads [steps] / [stepVelocities] to [MAX_PATTERN_STEPS], clamps [stepCount] to 1..64 and
+     * clamps note pitches (0..127) / times.
+     * The constructor runs it, but Gson (no no-arg constructor -> Unsafe allocation) skips init
+     * blocks, so loaders call [ProjectData.normalizeTracks] after parsing. Old projects, the
+     * default session (32-step arrays) and AI output (16-step arrays) used to leave short arrays
+     * that crashed the step editor / arranger merge once a pattern was widened past them.
+     */
+    fun normalizeSteps() {
+        val s: BooleanArray? = steps
+        if (s == null || s.size < MAX_PATTERN_STEPS) {
+            val padded = BooleanArray(MAX_PATTERN_STEPS)
+            if (s != null) System.arraycopy(s, 0, padded, 0, s.size)
+            steps = padded
+        }
+        val v: FloatArray? = stepVelocities
+        if (v == null || v.size < MAX_PATTERN_STEPS) {
+            val padded = FloatArray(MAX_PATTERN_STEPS) { 0.8f }
+            if (v != null) System.arraycopy(v, 0, padded, 0, v.size)
+            stepVelocities = padded
+        }
+        if (stepCount < 1 || stepCount > MAX_PATTERN_STEPS) stepCount = stepCount.coerceIn(1, MAX_PATTERN_STEPS)
+        // Notes from AI / imports: a negative pitch indexed note-name tables with a negative
+        // index (pitch % 12), and NaN / negative times broke the piano roll and arranger maths.
+        val ns: MutableList<MidiNote>? = notes
+        if (ns != null) {
+            for (n in ns) {
+                if (n.pitch !in 0..127) n.pitch = n.pitch.coerceIn(0, 127)
+                if (n.startBeat.isNaN() || n.startBeat < 0.0) n.startBeat = 0.0
+                if (n.lengthBeats.isNaN() || n.lengthBeats <= 0.0) n.lengthBeats = 0.25
+                if (n.velocity.isNaN()) n.velocity = 0.8f
+            }
+        }
+    }
+
     /** True when [note] lies inside the (possibly cropped) notes clip. */
     fun isNoteInClip(note: MidiNote): Boolean = notesClipEndBeat <= 0.0 || note.startBeat < notesClipEndBeat
 
@@ -271,6 +312,17 @@ enum class FxType(val key: String, val label: String, val shortLabel: String) {
     companion object {
         fun fromKey(key: String?): FxType? = values().firstOrNull { it.key == key }
     }
+}
+
+/** Length of every track's step arrays (the step sequencer's maximum pattern length). */
+const val MAX_PATTERN_STEPS = 64
+
+/** Pads every track's step arrays (see [TrackData.normalizeSteps]). Call after Gson parsing. */
+fun ProjectData.normalizeTracks(): ProjectData {
+    // Nullable view: Gson can leave a declared non-null list null for odd JSON
+    val list: MutableList<TrackData>? = tracks
+    list?.forEach { it.normalizeSteps() }
+    return this
 }
 
 /** Max modules per rack (track or master), FL Studio Mobile style. */

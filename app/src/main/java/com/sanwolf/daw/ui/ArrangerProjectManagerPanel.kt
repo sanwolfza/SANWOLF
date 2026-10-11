@@ -98,7 +98,7 @@ fun ArrangerProjectManagerPanel(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
 
     var projectList by remember { mutableStateOf<List<CloudProjectSummary>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }

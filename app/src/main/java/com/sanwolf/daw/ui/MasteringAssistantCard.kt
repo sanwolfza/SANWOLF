@@ -168,7 +168,7 @@ fun MasteringAssistantCard(
     onApplied: () -> Unit,
     onMasterVolumeChange: (Float) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
     val gemini = remember { GeminiDawClient() }
     val accumulator = remember { MixAccumulator() }
     val session = remember { AssistantSession() }

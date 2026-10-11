@@ -287,20 +287,26 @@ fun CoProducerArrangerOverlay(
                                         notes.add(MidiNote(pitch = 63, startBeat = dropStartBeat.toDouble(), lengthBeats = 16.0, velocity = 0.95f * aiEnergyLevel))
                                         notes.add(MidiNote(pitch = 67, startBeat = dropStartBeat.toDouble() + 4.0, lengthBeats = 12.0, velocity = 1.0f * aiEnergyLevel))
                                         notes.add(MidiNote(pitch = 60, startBeat = outroStartBeat.toDouble(), lengthBeats = 16.0, velocity = 0.4f))
-                                    } else if (track.type == TrackType.DRUM_MACHINE) {
-                                        track.stepCount = totalSongBeats.toInt() * 4
-                                        for (i in 0 until track.stepCount) {
+                                    }
+                                    if (track.type == TrackType.DRUM_MACHINE) {
+                                        // Build a fresh 64-step pattern: never mutate the live track
+                                        // (the audio thread is reading it) and keep stepCount in 1..64.
+                                        val total = (totalSongBeats.toInt() * 4).coerceIn(1, 64 * 64)
+                                        val newSteps = track.steps.copyOf(com.sanwolf.daw.model.MAX_PATTERN_STEPS)
+                                        for (i in 0 until total) {
                                             val beat = i / 4.0
                                             if (beat < introLengthBeats) {
-                                                track.steps[i % 64] = (i % 16 == 0)
+                                                newSteps[i % 64] = (i % 16 == 0)
                                             } else if (beat >= dropStartBeat && beat < outroStartBeat) {
-                                                track.steps[i % 64] = (i % 4 == 0 || i % 8 == 6)
+                                                newSteps[i % 64] = (i % 4 == 0 || i % 8 == 6)
                                             } else if (beat >= outroStartBeat) {
-                                                track.steps[i % 64] = (i % 32 == 0)
+                                                newSteps[i % 64] = (i % 32 == 0)
                                             }
                                         }
+                                        track.copy(notes = notes, steps = newSteps, stepCount = total.coerceIn(1, 64))
+                                    } else {
+                                        track.copy(notes = notes)
                                     }
-                                    track.copy(notes = notes)
                                 }.toMutableList()
                             )
                             onApplyArrangement(arrangedProject)

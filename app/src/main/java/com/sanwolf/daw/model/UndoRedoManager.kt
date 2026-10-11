@@ -23,7 +23,7 @@ class UndoRedoManager(private val onStateChange: (ProjectData) -> Unit) {
         redoStack.add(currentState)
 
         val previousState = undoStack.last()
-        return gson.fromJson(previousState, ProjectData::class.java)
+        return gson.fromJson(previousState, ProjectData::class.java)?.normalizeTracks()
     }
 
     fun redo(currentProject: ProjectData): ProjectData? {
@@ -32,7 +32,7 @@ class UndoRedoManager(private val onStateChange: (ProjectData) -> Unit) {
         val nextState = redoStack.removeAt(redoStack.size - 1)
         undoStack.add(nextState)
 
-        return gson.fromJson(nextState, ProjectData::class.java)
+        return gson.fromJson(nextState, ProjectData::class.java)?.normalizeTracks()
     }
 
     /** Forgets all history (new project / project opened). The next saveState() is the new base. */

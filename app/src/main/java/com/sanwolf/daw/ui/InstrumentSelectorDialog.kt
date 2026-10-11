@@ -111,7 +111,7 @@ fun InstrumentSelectorDialog(
     var selectedCategory by remember { mutableStateOf<InstrumentCategory?>(null) }
     var isListMode by remember { mutableStateOf(true) } // List mode friendly view by default
     var previewingPresetId by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
 
     // Consolidate both InstrumentCatalog presets and InstrumentLibrary definitions into unified browser
     val allPresets = remember {
@@ -1026,7 +1026,7 @@ private fun getCategoryIcon(category: InstrumentCategory): ImageVector {
     }
 }
 
-private fun InstrumentDefinition.toInstrumentPreset(): InstrumentPreset {
+internal fun InstrumentDefinition.toInstrumentPreset(): InstrumentPreset {
     val modelCat = when (category) {
         com.sanwolf.daw.audio.InstrumentCategory.DRUMS, com.sanwolf.daw.audio.InstrumentCategory.DRUMS_PERCUSSION -> InstrumentCategory.DRUM_KIT
         com.sanwolf.daw.audio.InstrumentCategory.BASS -> InstrumentCategory.BASS_808
@@ -1071,7 +1071,7 @@ private fun InstrumentDefinition.toInstrumentPreset(): InstrumentPreset {
 }
 
 /** Picker entry for a bundled multisample instrument, under the existing headings. */
-private fun MultisampleSpec.toInstrumentPreset(): InstrumentPreset {
+internal fun MultisampleSpec.toInstrumentPreset(): InstrumentPreset {
     val modelCat = when (group) {
         MultisamplePickerGroup.KEYS -> InstrumentCategory.KEYS_PAD
         MultisamplePickerGroup.MALLETS -> InstrumentCategory.WORLD_PERCUSSION
@@ -1093,7 +1093,7 @@ private fun MultisampleSpec.toInstrumentPreset(): InstrumentPreset {
     )
 }
 
-private fun playPresetPreview(audioEngine: SanwolfAudioEngine?, preset: InstrumentPreset) {
+internal fun playPresetPreview(audioEngine: SanwolfAudioEngine?, preset: InstrumentPreset) {
     if (audioEngine == null) return
 
     // Sampled instruments: decode on first use, then play middle C (melodic, never a drum hit).

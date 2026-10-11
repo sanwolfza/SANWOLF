@@ -114,7 +114,7 @@ fun AiStudioDialog(
     var activeTab by remember { mutableStateOf(AiTab.MUSIC_GEN) }
     var isThinking by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
 
     // Inputs
     var finishPrompt by remember { mutableStateOf("Analyze current stems and generate complementary 808 bassline and syncopated trap claps") }
@@ -391,7 +391,8 @@ fun AiStudioDialog(
                         AiTab.MODULAR_PATCH -> {
                             var modularPrompt by remember { mutableStateOf("Warm analog low-pass bass with slow LFO modulation") }
                             val modularTrack = remember(project) {
-                                project.tracks.find { it.type == com.sanwolf.daw.model.TrackType.MODULAR_SYNTH } ?: project.tracks.first()
+                                // firstOrNull: a blank New Project has no tracks (first() crashed here)
+                                project.tracks.find { it.type == com.sanwolf.daw.model.TrackType.MODULAR_SYNTH } ?: project.tracks.firstOrNull()
                             }
 
                             Column(modifier = Modifier.fillMaxSize()) {
@@ -424,8 +425,12 @@ fun AiStudioDialog(
                                             scope.launch {
                                                 try {
                                                     val graph = aiClient.generateModularPatchWithFlash(modularPrompt)
-                                                    modularTrack.modularGraph = graph
-                                                    statusMessage = "Applied new modular patch: '$modularPrompt'!"
+                                                    if (modularTrack != null) {
+                                                        modularTrack.modularGraph = graph
+                                                        statusMessage = "Applied new modular patch: '$modularPrompt'!"
+                                                    } else {
+                                                        statusMessage = "Add a track first, then generate a patch for it."
+                                                    }
                                                 } catch (e: Exception) {
                                                     android.util.Log.e("AiStudioDialog", "AI action failed", e)
                                                     statusMessage = "Error: ${e.message}"
@@ -458,7 +463,7 @@ fun AiStudioDialog(
                                         .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(8.dp))
                                 ) {
                                     ModularSynthView(
-                                        graph = modularTrack.modularGraph ?: com.sanwolf.daw.model.ModularGraph(),
+                                        graph = modularTrack?.modularGraph ?: com.sanwolf.daw.model.ModularGraph(),
                                         onTestSound = {
                                             audioEngine.triggerSynthNote(frequency = 220f, durationSec = 0.6f, waveform = com.sanwolf.daw.model.SynthWaveform.SAWTOOTH, cutoff = 1800f)
                                         },
@@ -469,8 +474,12 @@ fun AiStudioDialog(
                                             scope.launch {
                                                 try {
                                                     val graph = aiClient.generateModularPatchWithFlash(desc)
-                                                    modularTrack.modularGraph = graph
-                                                    statusMessage = "Applied new modular patch!"
+                                                    if (modularTrack != null) {
+                                                        modularTrack.modularGraph = graph
+                                                        statusMessage = "Applied new modular patch!"
+                                                    } else {
+                                                        statusMessage = "Add a track first, then generate a patch for it."
+                                                    }
                                                 } catch (e: Exception) {
                                                     android.util.Log.e("AiStudioDialog", "AI action failed", e)
                                                     statusMessage = "Error: ${e.message}"
@@ -532,7 +541,7 @@ fun MusicGeneratorTabContent(
     aiClient: GeminiDawClient,
     onApplyGeneratedMusic: (FullMusicGenerationResult) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
     var isGenerating by remember { mutableStateOf(false) }
     var statusText by remember { mutableStateOf<String?>(null) }
 
@@ -980,7 +989,7 @@ private fun CoProducerArrangeTabContent(
     var isArranging by remember { mutableStateOf(false) }
     var arrangeInstruction by remember { mutableStateOf("Co-producer arrange: establish atmospheric starting point at beat 0, explosive drop climax at beat 16, and cinematic outro finish point at beat 64.") }
     var resultStatus by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(verticalAlignment = Alignment.CenterVertically) {

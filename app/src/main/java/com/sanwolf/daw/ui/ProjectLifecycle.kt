@@ -13,6 +13,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.sanwolf.daw.audio.ProjectManager
 import com.sanwolf.daw.model.ProjectData
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -56,6 +57,11 @@ object ProjectSession {
         prefs(context).edit().apply {
             if (fileId == null) remove(KEY_LAST_PROJECT) else putString(KEY_LAST_PROJECT, fileId)
         }.apply()
+    }
+
+    /** Synchronous (commit) clear, so it is on disk even if the process dies right after. */
+    fun clearLastProjectIdNow(context: Context) {
+        runCatching { prefs(context).edit().remove(KEY_LAST_PROJECT).commit() }
     }
 
     fun lastSelectedTrack(context: Context): Int = prefs(context).getInt(KEY_LAST_TRACK, 0)
@@ -118,17 +124,31 @@ fun ProjectLifecycleEffects(
             vm.sessionRestoreAttempted = true
             val lastId = ProjectSession.lastProjectId(appContext)
             if (lastId != null && vm.currentProjectFileId.value == null) {
+                // Forget the id while restoring: if opening this project crashes the app, the next
+                // launch starts clean instead of crashing again on the same file (crash loop).
+                ProjectSession.clearLastProjectIdNow(appContext)
+                com.sanwolf.daw.CrashReporter.breadcrumb("restore last project")
                 val loaded = withContext(Dispatchers.IO) {
-                    if (projectManager.exists(lastId)) projectManager.load(lastId).getOrNull() else null
+                    runCatching { if (projectManager.exists(lastId)) projectManager.load(lastId).getOrNull() else null }.getOrNull()
                 }
-                if (loaded != null) {
+                val restored = loaded != null && try {
                     applyLoadedProject(loaded)
                     vm.currentProjectFileId.value = lastId
                     vm.savedProjectJson.value = runCatching { projectManager.toJson(vm.project) }.getOrNull()
                     vm.isProjectDirty.value = false
                     vm.undoRedoManager.clear()
                     val sel = ProjectSession.lastSelectedTrack(appContext)
-                    if (sel in vm.project.tracks.indices) vm.selectedTrackIndex.intValue = sel
+                    vm.selectedTrackIndex.intValue = if (sel in vm.project.tracks.indices) sel else 0
+                    true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e("ProjectSession", "Reopening $lastId failed", e)
+                    com.sanwolf.daw.CrashReporter.breadcrumb("restore failed: ${e.javaClass.simpleName}: ${e.message}")
+                    false
+                }
+                if (restored) {
+                    ProjectSession.setLastProjectId(appContext, lastId)
                 } else {
                     Log.w("ProjectSession", "Last project $lastId could not be reopened")
                 }

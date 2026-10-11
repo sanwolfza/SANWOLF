@@ -386,7 +386,7 @@ private fun PlaceholderSampleDialog(
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var previewingSampleId by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
 
     val categories = listOf("All", "Drums", "Instruments", "Vocals & FX")
     val allSamples = remember { FactorySampleCatalog.samples }
