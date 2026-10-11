@@ -822,7 +822,7 @@ class FirebaseDawManager(private val context: Context) {
 
 /** Insert-rack slots as Firestore maps. */
 private fun fxSlotsToMaps(slots: List<com.sanwolf.daw.model.FxSlot>): List<Map<String, Any>> = slots.map { slot ->
-    val base = mapOf(
+    val base: Map<String, Any> = mapOf(
         "id" to slot.id,
         "type" to slot.type,
         "bypassed" to slot.bypassed,

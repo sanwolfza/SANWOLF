@@ -244,7 +244,14 @@ fun fxPlanHasTail(plan: FxRackPlan): Boolean {
 object FxMeters {
     @Volatile private var map: Map<String, FxProcessor> = emptyMap()
 
-    fun publish(processors: Map<String, FxProcessor>) { map = HashMap(processors) }
+    /** Song tempo at the last rebuild (UI: delay tap spacing). */
+    @Volatile var songBpm: Int = 120
+        private set
+
+    fun publish(processors: Map<String, FxProcessor>, bpm: Int = songBpm) {
+        map = HashMap(processors)
+        songBpm = bpm
+    }
 
     /** Latest meter value for a slot (0 when the slot is not live). */
     fun read(slotId: String): Float = map[slotId]?.meter ?: 0f

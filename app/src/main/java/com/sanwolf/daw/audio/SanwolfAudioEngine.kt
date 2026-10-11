@@ -180,7 +180,7 @@ class SanwolfAudioEngine(private val context: Context) {
                 val master = unitsFor(project.masterSlots())
                 fxProcessors.keys.retainAll(used)
                 fxPlan = FxRackPlan(keys.toTypedArray(), chains.toTypedArray(), master)
-                FxMeters.publish(fxProcessors)
+                FxMeters.publish(fxProcessors, project.bpm)
             }
         } catch (e: Exception) {
             // The UI thread may be editing a rack list concurrently; the next rebuild fixes it
