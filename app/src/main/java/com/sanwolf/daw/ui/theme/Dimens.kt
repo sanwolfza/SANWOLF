@@ -18,27 +18,44 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Global UI size. The whole app is rendered with a scaled [Density], so every dp and sp
- * shrinks (or grows) together; [Dimens] holds the base sizes of the main chrome.
+ * Global UI size. MainActivity applies it as a configuration override (densityDpi scaled,
+ * fontScale capped at 1.0), so every window (dialogs, menus, popups, sheets) is scaled the same
+ * way; if that override can't be applied, [ProvideUiScale] scales the Compose density instead.
  *
- * Compact is the default: on a phone in landscape the old 1.0 scale looked "zoomed in".
+ * Compact (~72%) is the default: on a phone in landscape larger sizes looked "zoomed in".
  */
-enum class UiSize(val label: String, val scale: Float) {
-    COMPACT("Compact", 0.85f),
-    NORMAL("Normal", 1.0f),
-    LARGE("Large", 1.15f);
+enum class UiSize(val label: String, val chipLabel: String, val scale: Float) {
+    EXTRA_COMPACT("Extra compact", "Extra", 0.65f),
+    COMPACT("Compact", "Compact", 0.72f),
+    NORMAL("Normal", "Normal", 1.0f),
+    LARGE("Large", "Large", 1.15f);
 
     companion object {
         private const val PREFS = "sanwolf_daw_prefs"
         private const val KEY = "ui_size"
+        private const val KEY_VERSION = "ui_size_version"
+        /** v2: Compact 0.85 -> 0.72 and Extra compact added; old defaults move to the new default. */
+        private const val CURRENT_VERSION = 2
 
         fun load(context: Context): UiSize {
-            val name = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (prefs.getInt(KEY_VERSION, 0) < CURRENT_VERSION) {
+                // One-time migration: the old defaults (Normal on early builds, Compact 85% later)
+                // become the new Compact; an explicit Large is kept.
+                val old = prefs.getString(KEY, null)
+                val editor = prefs.edit().putInt(KEY_VERSION, CURRENT_VERSION)
+                if (old == null || old == NORMAL.name || old == COMPACT.name) editor.putString(KEY, COMPACT.name)
+                editor.apply()
+            }
+            val name = prefs.getString(KEY, null)
             return values().firstOrNull { it.name == name } ?: COMPACT
         }
 
         fun save(context: Context, size: UiSize) {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, size.name).apply()
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY, size.name)
+                .putInt(KEY_VERSION, CURRENT_VERSION)
+                .apply()
         }
     }
 }
@@ -74,7 +91,8 @@ fun ProvideUiScale(scale: Float = LocalUiScale.current, content: @Composable () 
     val baseDensity = if (platformDensity > 0f) platformDensity else base.density
     CompositionLocalProvider(
         LocalUiScale provides scale,
-        LocalDensity provides Density(density = baseDensity * scale, fontScale = base.fontScale)
+        // System font size is capped at 100% inside the app so large fonts can't blow up the UI
+        LocalDensity provides Density(density = baseDensity * scale, fontScale = base.fontScale.coerceAtMost(1f))
     ) {
         content()
     }

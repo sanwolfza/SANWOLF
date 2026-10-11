@@ -240,7 +240,7 @@ fun ToolsSection(
     }
 }
 
-/** Settings > Display > UI size: Compact (default) / Normal / Large, applied app-wide. */
+/** Settings > Display > UI size: Extra compact / Compact (default) / Normal / Large, applied app-wide. */
 @Composable
 private fun UiSizeRow() {
     val uiSizeState = LocalUiSizeState.current
@@ -255,17 +255,21 @@ private fun UiSizeRow() {
             Icon(Icons.Default.ZoomOutMap, contentDescription = null, tint = SanwolfTextSecondary, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("UI size", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = SanwolfTextPrimary, modifier = Modifier.weight(1f))
-            Text("${(uiSizeState.size.scale * 100).toInt()}%", fontSize = 11.sp, color = SanwolfTextSecondary)
+            Text(uiSizeState.size.label, fontSize = 11.sp, color = SanwolfTextSecondary, maxLines = 1)
         }
         Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-            UiSize.values().forEach { size ->
-                SidebarChip(
-                    label = size.label,
-                    selected = uiSizeState.size == size,
-                    onClick = { uiSizeState.update(size) },
-                    modifier = Modifier.weight(1f)
-                )
+        // Two rows of two so the labels never clip in a narrow side panel
+        UiSize.values().toList().chunked(2).forEachIndexed { rowIdx, rowSizes ->
+            if (rowIdx > 0) Spacer(modifier = Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                rowSizes.forEach { size ->
+                    SidebarChip(
+                        label = "${size.chipLabel} ${(size.scale * 100).toInt()}%",
+                        selected = uiSizeState.size == size,
+                        onClick = { uiSizeState.update(size) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }

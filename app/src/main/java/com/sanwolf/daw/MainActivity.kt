@@ -1,7 +1,9 @@
 package com.sanwolf.daw
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -23,11 +25,46 @@ import com.sanwolf.daw.ui.theme.UiSize
 import com.sanwolf.daw.ui.theme.UiSizeState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
     private var lastDownTime = 0L
     private var lastKeyCode = -1
+
+    /**
+     * UI scale applied through the configuration override in [attachBaseContext] (0 = not
+     * applied; Compose then scales the density itself in ProvideUiScale).
+     */
+    private var configScale = 0f
+
+    /**
+     * Applies the UI size to the whole activity: densityDpi scaled (screen dp sizes adjusted to
+     * match) and system font scale capped at 1.0. Every window this activity opens (dialogs,
+     * menus, popups, sheets) inherits it, unlike a Compose-only density, which each new window
+     * resets. Changing the size in Settings recreates the activity.
+     */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(newBase)
+        try {
+            val sys = newBase.resources.configuration
+            val scale = UiSize.load(newBase).scale
+            val override = Configuration() // all fields "undefined": only what is set below overrides
+            if (sys.densityDpi > 0 && scale != 1f) {
+                override.densityDpi = (sys.densityDpi * scale).roundToInt().coerceAtLeast(60)
+                if (sys.screenWidthDp > 0) override.screenWidthDp = (sys.screenWidthDp / scale).roundToInt()
+                if (sys.screenHeightDp > 0) override.screenHeightDp = (sys.screenHeightDp / scale).roundToInt()
+                if (sys.smallestScreenWidthDp > 0) override.smallestScreenWidthDp = (sys.smallestScreenWidthDp / scale).roundToInt()
+            }
+            override.fontScale = sys.fontScale.coerceAtMost(1f).let { if (it > 0f) it else 1f }
+            applyOverrideConfiguration(override)
+            configScale = scale
+        } catch (e: Exception) {
+            // Fall back to the Compose-level density scale
+            android.util.Log.w("MainActivity", "UI scale override not applied", e)
+            configScale = 0f
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,9 +85,18 @@ class MainActivity : ComponentActivity() {
         val appContext = applicationContext
         setContent {
             // Global UI size (Settings > Display > UI size), persisted in SharedPreferences.
-            val uiSizeState = remember { UiSizeState(UiSize.load(appContext)) { UiSize.save(appContext, it) } }
+            val uiSizeState = remember {
+                UiSizeState(UiSize.load(appContext)) {
+                    UiSize.save(appContext, it)
+                    // The configuration override is read in attachBaseContext: rebuild the activity
+                    // (the DAW session lives in the ViewModel, so nothing is lost)
+                    if (configScale > 0f) recreate()
+                }
+            }
             CompositionLocalProvider(LocalUiSizeState provides uiSizeState) {
-                ProvideUiScale(scale = uiSizeState.size.scale) {
+                // With the configuration override in place the density is already scaled: 1f here
+                // (ProvideUiScale still caps the font scale). Otherwise scale in Compose.
+                ProvideUiScale(scale = if (configScale > 0f) 1f else uiSizeState.size.scale) {
                     MyApplicationTheme {
                         // Branded loading screen on cold start, then the DAW (ui/SplashScreens.kt)
                         SanwolfSplashGate { SanwolfDawApp() }
