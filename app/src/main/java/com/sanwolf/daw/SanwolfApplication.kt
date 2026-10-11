@@ -17,7 +17,7 @@ class SanwolfApplication : Application() {
             )
         }
         // Foreground / background transitions in the breadcrumbs ("went home" before a crash?)
-        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+        registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
                 CrashReporter.breadcrumb("${activity.javaClass.simpleName} created${if (savedInstanceState != null) " (restored)" else ""}")
             }
