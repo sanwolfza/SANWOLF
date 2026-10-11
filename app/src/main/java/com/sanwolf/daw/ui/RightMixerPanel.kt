@@ -13,12 +13,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Piano
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,14 +46,16 @@ import com.sanwolf.daw.audio.SanwolfAudioEngine
 import com.sanwolf.daw.model.MasteringConfig
 import com.sanwolf.daw.model.ProjectData
 import com.sanwolf.daw.model.TrackData
+import com.sanwolf.daw.model.TrackType
 import com.sanwolf.daw.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlin.math.log10
 
-/** Sections of the right-hand mastering hub. */
+/** Sections of the right-hand panel: the selected track's channel, the master, the keyboard. */
 enum class RightPanelTab(val title: String, val icon: ImageVector) {
-    MIXER("Mixer", Icons.Default.Tune),
-    MASTER("Mastering", Icons.Default.GraphicEq)
+    TRACK("Track", Icons.Default.Tune),
+    MASTER("Master", Icons.Default.GraphicEq),
+    KEYS("Keys", Icons.Default.Piano)
 }
 
 /** A master-bus preset. Only fields the engine actually processes are set. */
@@ -70,10 +78,12 @@ private val MASTER_PRESETS = listOf(
 )
 
 /**
- * Right-hand mastering hub: a slim icon rail on the screen edge (always visible) plus an
- * animated panel (fraction of screen width, capped) with the Mixer (per-track volume/pan/mute/solo) and the Master chain
- * (EQ shelves, glue compressor, stereo width, limiter drive/ceiling, meters, presets, bypass)
- * and an Export button. Every control here drives a real engine parameter.
+ * Right-hand panel, FL Studio Mobile style. Tabs at the top:
+ *  - Track: pick a track, its mixer basics (volume, pan, mute, solo), then its insert rack.
+ *  - Master: master insert rack, then the mastering chain (A/B, presets, volume, EQ, glue,
+ *    width, limiter), with the LUFS / RMS meter pinned at the bottom.
+ *  - Keys: the live piano's keyboard settings (octave, range, key size, velocity).
+ * The whole panel collapses to nothing; the edge tab (EdgeHandle) re-opens it.
  */
 @Composable
 fun RightMixerPanel(
@@ -85,196 +95,172 @@ fun RightMixerPanel(
     onTrackPanChange: (Int, Float) -> Unit,
     onToggleMute: (Int) -> Unit,
     onToggleSolo: (Int) -> Unit,
+    keyboardSettings: PianoKeyboardSettings,
     modifier: Modifier = Modifier,
-    selectedTab: RightPanelTab = RightPanelTab.MIXER,
+    selectedTrackIndex: Int = 0,
+    onSelectTrack: (Int) -> Unit = {},
+    revision: Int = 0,
+    selectedTab: RightPanelTab = RightPanelTab.TRACK,
     onSelectTab: (RightPanelTab) -> Unit = {},
     onOpenExport: () -> Unit = {},
     onMasteringChanged: () -> Unit = {},
-    onMasterVolumeChange: (Float) -> Unit = {}
+    onMasterVolumeChange: (Float) -> Unit = {},
+    /** A rack slot was added, removed or reordered (the engine must rebuild its routing). */
+    onRackStructureChanged: () -> Unit = {},
+    /** A rack slot's parameter or bypass was committed (undo entry). */
+    onRackParamsCommitted: () -> Unit = {}
 ) {
-    Row(
+    Column(
         modifier = modifier
+            .width(sidePanelWidth())
             .fillMaxHeight()
+            .background(SanwolfPanel)
+            .border(BorderStroke(1.dp, SanwolfPanelBorder))
             .testTag("right_mastering_hub")
     ) {
-        // --- Expanded panel (slides out from the rail) ---
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
-            exit = shrinkHorizontally(shrinkTowards = Alignment.End) + fadeOut()
+        // Header: collapse + tabs
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(34.dp)
+                .padding(end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
         ) {
+            IconButton(onClick = onToggleExpand, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.ChevronRight, contentDescription = "Collapse right panel", tint = SanwolfTextSecondary, modifier = Modifier.size(18.dp))
+            }
+            RightPanelTab.values().forEach { tab ->
+                PanelTabChip(
+                    tab = tab,
+                    selected = tab == selectedTab,
+                    onClick = { onSelectTab(tab) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        HorizontalDivider(color = SanwolfPanelBorder)
+
+        val selectedTrack: TrackData? = project.tracks.getOrNull(selectedTrackIndex) ?: project.tracks.firstOrNull()
+        val selectedIndex = if (selectedTrack == null) -1 else project.tracks.indexOf(selectedTrack)
+
+        key(selectedTab) {
             Column(
                 modifier = Modifier
-                    .width(sidePanelWidth())
-                    .fillMaxHeight()
-                    .background(SanwolfPanel)
-                    .border(BorderStroke(1.dp, SanwolfPanelBorder))
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Header
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 2.dp, end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onToggleExpand, modifier = Modifier.size(Dimens.iconButton)) {
-                        Icon(Icons.Default.ChevronRight, contentDescription = "Collapse mastering panel", tint = SanwolfTextSecondary)
-                    }
-                    Icon(selectedTab.icon, contentDescription = null, tint = SanwolfCyan, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = selectedTab.title.uppercase(),
-                        fontSize = Dimens.textTitle,
-                        fontWeight = FontWeight.Black,
-                        color = SanwolfCyan,
-                        letterSpacing = 1.sp,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f)
+                when (selectedTab) {
+                    RightPanelTab.TRACK -> TrackTab(
+                        project = project,
+                        track = selectedTrack,
+                        trackIndex = selectedIndex,
+                        revision = revision,
+                        onSelectTrack = onSelectTrack,
+                        onTrackVolumeChange = onTrackVolumeChange,
+                        onTrackPanChange = onTrackPanChange,
+                        onToggleMute = onToggleMute,
+                        onToggleSolo = onToggleSolo,
+                        onRackStructureChanged = onRackStructureChanged,
+                        onRackParamsCommitted = onRackParamsCommitted
                     )
-                    if (selectedTab == RightPanelTab.MIXER) {
-                        Text("${project.tracks.size} tracks", fontSize = 12.sp, color = SanwolfTextSecondary)
+                    RightPanelTab.MASTER -> {
+                        FxRackView(
+                            title = "Master inserts",
+                            slots = project.masterSlots(),
+                            ensureSlots = { project.masterRackOrCreate() },
+                            revision = revision,
+                            onStructureChanged = onRackStructureChanged,
+                            onParamsCommitted = onRackParamsCommitted,
+                            footerNote = "Signal: tracks → master inserts → mastering chain → out."
+                        )
+                        MasterSection(
+                            project = project,
+                            onMasteringChanged = onMasteringChanged,
+                            onMasterVolumeChange = onMasterVolumeChange
+                        )
                     }
-                }
-                HorizontalDivider(color = SanwolfPanelBorder)
-
-                key(selectedTab) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        when (selectedTab) {
-                            RightPanelTab.MIXER -> MixerSection(
-                                project = project,
-                                onTrackVolumeChange = onTrackVolumeChange,
-                                onTrackPanChange = onTrackPanChange,
-                                onToggleMute = onToggleMute,
-                                onToggleSolo = onToggleSolo
-                            )
-                            RightPanelTab.MASTER -> MasterSection(
-                                project = project,
-                                audioEngine = audioEngine,
-                                isVisible = isExpanded,
-                                onMasteringChanged = onMasteringChanged,
-                                onMasterVolumeChange = onMasterVolumeChange
-                            )
-                        }
-                    }
-                }
-
-                // Export is always one tap away at the bottom of the hub
-                HorizontalDivider(color = SanwolfPanelBorder)
-                Button(
-                    onClick = onOpenExport,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                        .heightIn(min = Dimens.buttonMin)
-                        .testTag("hub_export_button"),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = SanwolfGold, contentColor = Color.Black),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Export mix", fontWeight = FontWeight.Bold, fontSize = Dimens.textTitle)
+                    RightPanelTab.KEYS -> KeyboardTab(keyboardSettings)
                 }
             }
         }
 
-        // --- Icon rail (always visible, on the screen edge) ---
-        Column(
+        if (selectedTab == RightPanelTab.MASTER) {
+            HorizontalDivider(color = SanwolfPanelBorder)
+            MasterMeterFooter(project = project, audioEngine = audioEngine, isVisible = isExpanded)
+        }
+
+        // Export is always one tap away at the bottom of the panel
+        HorizontalDivider(color = SanwolfPanelBorder)
+        Button(
+            onClick = onOpenExport,
             modifier = Modifier
-                .width(Dimens.railWidth)
-                .fillMaxHeight()
-                .background(SanwolfSurfaceDark)
-                .border(BorderStroke(1.dp, SanwolfPanelBorder))
-                .verticalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 4.dp)
+                .heightIn(min = 34.dp)
+                .testTag("hub_export_button"),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = SanwolfGold, contentColor = Color.Black),
+            shape = RoundedCornerShape(8.dp)
         ) {
-            IconButton(onClick = onToggleExpand, modifier = Modifier.size(Dimens.railButton)) {
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.ChevronRight else Icons.Default.ChevronLeft,
-                    contentDescription = if (isExpanded) "Collapse mastering panel" else "Expand mastering panel",
-                    tint = SanwolfTextSecondary
-                )
-            }
-            HorizontalDivider(color = SanwolfPanelBorder, modifier = Modifier.width(32.dp))
-            RightPanelTab.values().forEach { tab ->
-                val isSelected = isExpanded && tab == selectedTab
-                HubRailButton(
-                    icon = tab.icon,
-                    label = tab.title,
-                    isSelected = isSelected,
-                    onClick = {
-                        if (isSelected) {
-                            onToggleExpand()
-                        } else {
-                            onSelectTab(tab)
-                            if (!isExpanded) onToggleExpand()
-                        }
-                    }
-                )
-            }
-            HubRailButton(
-                icon = Icons.Default.FileDownload,
-                label = "Export mix",
-                isSelected = false,
-                onClick = onOpenExport
-            )
-            if (!project.masteringConfig.enabled) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("BYP", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SanwolfMagenta)
-            }
+            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Export mix", fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
     }
 }
 
 @Composable
-private fun HubRailButton(
-    icon: ImageVector,
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier
-            .size(Dimens.railButton)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isSelected) SanwolfCyan.copy(alpha = 0.18f) else Color.Transparent)
+private fun PanelTabChip(tab: RightPanelTab, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .height(26.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (selected) SanwolfCyan.copy(alpha = 0.18f) else SanwolfPanelElevated)
+            .border(1.dp, if (selected) SanwolfCyan else SanwolfPanelBorder, RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
             .semantics {
-                contentDescription = label
-                selected = isSelected
+                contentDescription = tab.title
+                this.selected = selected
             }
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isSelected) SanwolfCyan else SanwolfTextPrimary,
-            modifier = Modifier.size(Dimens.railIcon)
+        Icon(tab.icon, contentDescription = null, tint = if (selected) SanwolfCyan else SanwolfTextSecondary, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(3.dp))
+        Text(
+            tab.title,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) SanwolfCyan else SanwolfTextPrimary,
+            maxLines = 1
         )
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// Mixer
+// Track tab
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun MixerSection(
+private fun TrackTab(
     project: ProjectData,
+    track: TrackData?,
+    trackIndex: Int,
+    revision: Int,
+    onSelectTrack: (Int) -> Unit,
     onTrackVolumeChange: (Int, Float) -> Unit,
     onTrackPanChange: (Int, Float) -> Unit,
     onToggleMute: (Int) -> Unit,
-    onToggleSolo: (Int) -> Unit
+    onToggleSolo: (Int) -> Unit,
+    onRackStructureChanged: () -> Unit,
+    onRackParamsCommitted: () -> Unit
 ) {
-    if (project.tracks.isEmpty()) {
+    if (track == null || trackIndex < 0) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -286,7 +272,7 @@ private fun MixerSection(
             Text("No tracks to mix yet", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = SanwolfTextPrimary)
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Add an instrument, import audio, or tap Record to create your first track.",
+                "Add an instrument, import audio, or record to create your first track.",
                 fontSize = 12.sp,
                 color = SanwolfTextSecondary,
                 textAlign = TextAlign.Center
@@ -294,19 +280,160 @@ private fun MixerSection(
         }
         return
     }
-    project.tracks.forEachIndexed { index, track ->
-        key(track.id) {
-            TrackMixerStrip(
-                trackIndex = index,
-                track = track,
-                onVolumeChange = { vol -> onTrackVolumeChange(index, vol) },
-                onPanChange = { pan -> onTrackPanChange(index, pan) },
-                onToggleMute = { onToggleMute(index) },
-                onToggleSolo = { onToggleSolo(index) }
-            )
+
+    // Channel selector
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        project.tracks.forEachIndexed { idx, t ->
+            val isSel = idx == trackIndex
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isSel) Color(t.colorHex).copy(alpha = 0.25f) else SanwolfPanelElevated)
+                    .border(1.dp, if (isSel) Color(t.colorHex) else SanwolfPanelBorder, RoundedCornerShape(4.dp))
+                    .clickable { onSelectTrack(idx) }
+                    .semantics { contentDescription = "Select ${t.name}" }
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    "${idx + 1} ${t.name}",
+                    fontSize = 10.sp,
+                    color = if (isSel) SanwolfTextPrimary else SanwolfTextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 96.dp)
+                )
+            }
+        }
+    }
+
+    Text(
+        "Track: ${track.name}",
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Black,
+        color = SanwolfCyan,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+
+    key(track.id) {
+        TrackMixerStrip(
+            trackIndex = trackIndex,
+            track = track,
+            onVolumeChange = { vol -> onTrackVolumeChange(trackIndex, vol) },
+            onPanChange = { pan -> onTrackPanChange(trackIndex, pan) },
+            onToggleMute = { onToggleMute(trackIndex) },
+            onToggleSolo = { onToggleSolo(trackIndex) }
+        )
+
+        val isAudio = track.type == TrackType.AUDIO_IMPORT
+        FxRackView(
+            title = "Inserts",
+            slots = track.fxSlots(),
+            ensureSlots = { track.fxRackOrCreate() },
+            revision = revision,
+            onStructureChanged = onRackStructureChanged,
+            onParamsCommitted = onRackParamsCommitted,
+            enabled = !isAudio,
+            disabledNote = "Audio-clip tracks play through the system media player, outside the effects engine, so they can't take inserts yet. Instrument and drum tracks can.",
+            footerNote = "Processed in order, top to bottom, before the master."
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Keys tab: live piano keyboard settings (the transport, BPM and metronome stay on the piano)
+// ---------------------------------------------------------------------------------------------
+
+@Composable
+private fun KeyboardTab(settings: PianoKeyboardSettings) {
+    HubCard {
+        HubLabel("Octave")
+        StepperRow(
+            label = "Lowest key C${settings.baseOctave}",
+            value = "${settings.baseOctave}",
+            canDecrease = settings.baseOctave > 1,
+            canIncrease = settings.baseOctave < 6,
+            onDecrease = { settings.changeOctave(-1) },
+            onIncrease = { settings.changeOctave(1) },
+            decreaseDescription = "Octave down",
+            increaseDescription = "Octave up"
+        )
+    }
+    HubCard {
+        HubLabel("Keyboard range")
+        StepperRow(
+            label = if (settings.octaveCount == 1) "1 octave (widest keys)" else "${settings.octaveCount} octaves",
+            value = "${settings.octaveCount}",
+            canDecrease = settings.octaveCount > 1,
+            canIncrease = settings.octaveCount < 4,
+            onDecrease = { settings.changeOctaveCount(-1) },
+            onIncrease = { settings.changeOctaveCount(1) },
+            decreaseDescription = "Fewer octaves (wider keys)",
+            increaseDescription = "More octaves (narrower keys)"
+        )
+    }
+    HubCard {
+        HubLabel("Key size")
+        PianoKeysSize.values().toList().chunked(2).forEach { pair ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                pair.forEach { size ->
+                    AbChip(
+                        label = size.label,
+                        selected = settings.keysSize == size,
+                        color = SanwolfGold,
+                        modifier = Modifier.weight(1f)
+                    ) { settings.selectSize(size) }
+                }
+            }
+        }
+        Text("Hidden keeps only the transport strip on screen.", fontSize = 10.sp, color = SanwolfTextMuted)
+    }
+    HubCard {
+        HubSlider(
+            label = "Key velocity",
+            value = settings.velocity,
+            range = 0.1f..1f,
+            display = "${(settings.velocity * 100).toInt()}%",
+            color = SanwolfCyan,
+            enabled = true,
+            onChange = { settings.changeVelocity(it) },
+            onDone = { settings.commitVelocity() }
+        )
+        Text("How hard the on-screen keys play (and record).", fontSize = 10.sp, color = SanwolfTextMuted)
+    }
+}
+
+@Composable
+private fun StepperRow(
+    label: String,
+    value: String,
+    canDecrease: Boolean,
+    canIncrease: Boolean,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+    decreaseDescription: String,
+    increaseDescription: String
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(label, fontSize = 12.sp, color = SanwolfTextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        IconButton(onClick = onDecrease, enabled = canDecrease, modifier = Modifier.size(30.dp)) {
+            Icon(Icons.Default.Remove, contentDescription = decreaseDescription, tint = SanwolfTextPrimary, modifier = Modifier.size(16.dp))
+        }
+        Text(value, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = SanwolfCyan, textAlign = TextAlign.Center, modifier = Modifier.width(22.dp))
+        IconButton(onClick = onIncrease, enabled = canIncrease, modifier = Modifier.size(30.dp)) {
+            Icon(Icons.Default.Add, contentDescription = increaseDescription, tint = SanwolfTextPrimary, modifier = Modifier.size(16.dp))
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Mixer strip
+// ---------------------------------------------------------------------------------------------
 
 @Composable
 fun TrackMixerStrip(
@@ -415,20 +542,19 @@ fun TrackMixerStrip(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Master chain / mastering
+// Master tab: mastering chain (after the master inserts) and the pinned meter
 // ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun MasterSection(
     project: ProjectData,
-    audioEngine: SanwolfAudioEngine,
-    isVisible: Boolean,
     onMasteringChanged: () -> Unit,
     onMasterVolumeChange: (Float) -> Unit
 ) {
     // project.masteringConfig is a plain object: bump this to redraw after edits
     var uiTick by remember { mutableIntStateOf(0) }
     @Suppress("UNUSED_VARIABLE") val tick = uiTick
+    var chainOpen by remember { mutableStateOf(true) }
     val config: MasteringConfig = project.masteringConfig
     val bypassed = !config.enabled
 
@@ -438,26 +564,45 @@ private fun MasterSection(
         if (commit) onMasteringChanged()
     }
 
-    // ---- Meters (polled from the audio thread's volatile readings while visible) ----
-    var peakL by remember { mutableFloatStateOf(0f) }
-    var peakR by remember { mutableFloatStateOf(0f) }
-    var rmsDb by remember { mutableFloatStateOf(-90f) }
-    var lufsM by remember { mutableFloatStateOf(-70f) }
-    var lufsS by remember { mutableFloatStateOf(-70f) }
-    var compGr by remember { mutableFloatStateOf(0f) }
-    var limGr by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(isVisible) {
-        while (isVisible) {
-            peakL = audioEngine.currentPeakLeft
-            peakR = audioEngine.currentPeakRight
-            rmsDb = audioEngine.masterRmsDb
-            lufsM = audioEngine.masterMomentaryLufs
-            lufsS = audioEngine.masterShortTermLufs
-            compGr = audioEngine.compressorReductionDb
-            limGr = audioEngine.limiterReductionDb
-            delay(60)
-        }
+    // Master volume (always active)
+    HubCard {
+        HubSlider(
+            label = "Master volume",
+            value = project.masterVolume,
+            range = 0f..1.5f,
+            display = "${(project.masterVolume * 100).toInt()}%",
+            color = SanwolfMagenta,
+            enabled = true,
+            onChange = {
+                onMasterVolumeChange(it)
+                uiTick++
+            },
+            onDone = onMasteringChanged
+        )
     }
+
+    // Mastering chain header (fixed last stage of the master rack)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(SanwolfPanelElevated)
+            .border(0.5.dp, if (bypassed) SanwolfMagenta.copy(alpha = 0.6f) else SanwolfLime.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+            .clickable { chainOpen = !chainOpen }
+            .semantics { contentDescription = if (chainOpen) "Hide mastering chain" else "Show mastering chain" }
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+    ) {
+        Text("MASTERING CHAIN", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SanwolfTextMuted, letterSpacing = 0.8.sp, modifier = Modifier.weight(1f))
+        Text(if (bypassed) "BYPASS" else "ON", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (bypassed) SanwolfMagenta else SanwolfLime)
+        Icon(
+            if (chainOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = SanwolfTextSecondary,
+            modifier = Modifier.size(18.dp)
+        )
+    }
+    if (!chainOpen) return
 
     // A/B: mastered chain vs bypass
     Row(
@@ -470,29 +615,6 @@ private fun MasterSection(
         AbChip("B · Bypass", selected = bypassed, color = SanwolfMagenta, modifier = Modifier.weight(1f)) {
             edit(commit = true) { it.enabled = false }
         }
-    }
-
-    // Meters
-    HubCard {
-        HubLabel("Output meters")
-        PeakMeterRow("L", peakL)
-        PeakMeterRow("R", peakR)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            MeterReadout("LUFS-M", lufsText(lufsM))
-            MeterReadout("LUFS-S", lufsText(lufsS))
-            MeterReadout("RMS", if (rmsDb <= -89f) "-inf" else "%.1f".format(rmsDb))
-        }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            MeterReadout("Comp GR", "%.1f dB".format(compGr))
-            MeterReadout("Limiter GR", "%.1f dB".format(limGr))
-            val delta = lufsS - config.targetLufs
-            MeterReadout("vs target", if (lufsS <= -69f) "--" else (if (delta > 0f) "+" else "") + "%.1f LU".format(delta))
-        }
-        Text(
-            "BS.1770 K-weighted loudness: momentary 400 ms, short-term 3 s. Integrated LUFS is measured on export.",
-            fontSize = 10.sp,
-            color = SanwolfTextMuted
-        )
     }
 
     // Presets
@@ -525,54 +647,29 @@ private fun MasterSection(
         }
         Text(
             "Target: ${config.targetLufs.toInt()} LUFS (reference only; the chain does not auto-normalise).",
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             color = SanwolfTextMuted
         )
     }
 
-    // Master volume
-    HubCard {
-        HubSlider(
-            label = "Master volume",
-            value = project.masterVolume,
-            range = 0f..1.5f,
-            display = "${(project.masterVolume * 100).toInt()}%",
-            color = SanwolfMagenta,
-            enabled = true,
-            onChange = {
-                onMasterVolumeChange(it)
-                uiTick++
-            },
-            onDone = onMasteringChanged
-        )
-    }
-
     val chainEnabled = !bypassed
-    // EQ
     HubCard {
-        HubLabel("Master EQ")
+        HubLabel("EQ")
         HubSlider("Low shelf (120 Hz)", config.lowGainDb, -6f..6f, dbText(config.lowGainDb), SanwolfOrange, chainEnabled,
             onChange = { v -> edit { it.lowGainDb = v } }, onDone = onMasteringChanged)
         HubSlider("High shelf (6 kHz)", config.highGainDb, -6f..6f, dbText(config.highGainDb), SanwolfCyan, chainEnabled,
             onChange = { v -> edit { it.highGainDb = v } }, onDone = onMasteringChanged)
     }
-
-    // Glue compressor
     HubCard {
         HubLabel("Glue compressor · 2:1")
         val thr = config.compressorThresholdDb
         HubSlider("Threshold", thr, -30f..0f, if (thr >= -0.5f) "Off" else dbText(thr), SanwolfGold, chainEnabled,
             onChange = { v -> edit { it.compressorThresholdDb = v } }, onDone = onMasteringChanged)
-        Text("10 ms attack, 150 ms release, automatic make-up gain.", fontSize = 11.sp, color = SanwolfTextMuted)
     }
-
-    // Stereo width
     HubCard {
         HubSlider("Stereo width", config.stereoWidth, 0f..2f, "${(config.stereoWidth * 100).toInt()}%", SanwolfPurple, chainEnabled,
             onChange = { v -> edit { it.stereoWidth = v } }, onDone = onMasteringChanged)
     }
-
-    // Limiter
     HubCard {
         HubLabel("Limiter")
         HubSlider("Drive (gain in)", config.limiterGainDb, 0f..12f, dbText(config.limiterGainDb), SanwolfMagenta, chainEnabled,
@@ -580,12 +677,60 @@ private fun MasterSection(
         HubSlider("Ceiling", config.limiterCeilingDb, -3f..0f, "%.1f dB".format(config.limiterCeilingDb), SanwolfLime, chainEnabled,
             onChange = { v -> edit { it.limiterCeilingDb = v } }, onDone = onMasteringChanged)
     }
-
     if (bypassed) {
         Text(
-            "Bypassed: only master volume and a -0.3 dB safety limiter are active.",
-            fontSize = 12.sp,
+            "Bypassed: only master volume, the master inserts and a -0.3 dB safety limiter are active.",
+            fontSize = 11.sp,
             color = SanwolfMagenta
+        )
+    }
+}
+
+/** Output meter pinned under the Master tab: L/R peak, LUFS-M, LUFS-S, RMS, gain reduction. */
+@Composable
+private fun MasterMeterFooter(project: ProjectData, audioEngine: SanwolfAudioEngine, isVisible: Boolean) {
+    var peakL by remember { mutableFloatStateOf(0f) }
+    var peakR by remember { mutableFloatStateOf(0f) }
+    var rmsDb by remember { mutableFloatStateOf(-90f) }
+    var lufsM by remember { mutableFloatStateOf(-70f) }
+    var lufsS by remember { mutableFloatStateOf(-70f) }
+    var compGr by remember { mutableFloatStateOf(0f) }
+    var limGr by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(isVisible) {
+        while (isVisible) {
+            peakL = audioEngine.currentPeakLeft
+            peakR = audioEngine.currentPeakRight
+            rmsDb = audioEngine.masterRmsDb
+            lufsM = audioEngine.masterMomentaryLufs
+            lufsS = audioEngine.masterShortTermLufs
+            compGr = audioEngine.compressorReductionDb
+            limGr = audioEngine.limiterReductionDb
+            delay(60)
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SanwolfSurfaceDark)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .testTag("master_meter_footer"),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        PeakMeterRow("L", peakL)
+        PeakMeterRow("R", peakR)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            MeterReadout("LUFS-M", lufsText(lufsM))
+            MeterReadout("LUFS-S", lufsText(lufsS))
+            MeterReadout("RMS", if (rmsDb <= -89f) "-inf" else "%.1f".format(rmsDb))
+            val delta = lufsS - project.masteringConfig.targetLufs
+            MeterReadout("vs tgt", if (lufsS <= -69f) "--" else (if (delta > 0f) "+" else "") + "%.1f".format(delta))
+        }
+        Text(
+            "GR comp %.1f / lim %.1f dB · BS.1770 (M 400 ms, S 3 s)".format(compGr, limGr),
+            fontSize = 9.sp,
+            color = SanwolfTextMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

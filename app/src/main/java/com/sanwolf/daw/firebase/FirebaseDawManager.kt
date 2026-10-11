@@ -139,7 +139,8 @@ class FirebaseDawManager(private val context: Context) {
                     "audioStartBeat" to t.audioStartBeat,
                     "audioDurationMs" to t.audioDurationMs,
                     "patternStartBeat" to t.patternStartBeat,
-                    "notesClipEndBeat" to t.notesClipEndBeat
+                    "notesClipEndBeat" to t.notesClipEndBeat,
+                    "fxRack" to fxSlotsToMaps(t.fxSlots())
                 )
             }
 
@@ -168,6 +169,7 @@ class FirebaseDawManager(private val context: Context) {
                 "trackCount" to project.tracks.size,
                 "tracks" to trackListMap,
                 "masteringConfig" to masteringMap,
+                "masterRack" to fxSlotsToMaps(project.masterSlots()),
                 "collaborationRoomId" to (project.collaborationRoomId ?: ""),
                 "lastSavedTimestamp" to project.lastSavedTimestamp,
                 "artist" to project.artist,
@@ -341,6 +343,7 @@ class FirebaseDawManager(private val context: Context) {
                             track.audioDurationMs = (rawT["audioDurationMs"] as? Number)?.toLong() ?: 0L
                             track.patternStartBeat = (rawT["patternStartBeat"] as? Number)?.toDouble() ?: 0.0
                             track.notesClipEndBeat = (rawT["notesClipEndBeat"] as? Number)?.toDouble() ?: 0.0
+                            mapsToFxSlots(rawT["fxRack"])?.let { track.fxRack = it }
 
                             // Notes
                             val rawNotes = rawT["notes"] as? List<Map<String, Any?>>
@@ -395,6 +398,8 @@ class FirebaseDawManager(private val context: Context) {
                             profileName = rawMastering["profileName"] as? String ?: "Modern EDM / Trap Punch"
                         )
                     }
+
+                    mapsToFxSlots(docSnapshot.get("masterRack"))?.let { proj.masterRack = it }
 
                     memoryProjects[projectId] = proj
                     return@runCatching proj
@@ -454,6 +459,7 @@ class FirebaseDawManager(private val context: Context) {
                 timeSignatureDenominator = original.timeSignatureDenominator,
                 masterVolume = original.masterVolume,
                 masteringConfig = original.masteringConfig.copy(),
+                masterRack = original.masterRack?.map { it.copy(id = UUID.randomUUID().toString()) }?.toMutableList(),
                 isCloudSynced = false,
                 lastSavedTimestamp = System.currentTimeMillis()
             )
@@ -483,7 +489,8 @@ class FirebaseDawManager(private val context: Context) {
                     audioStartBeat = t.audioStartBeat,
                     audioDurationMs = t.audioDurationMs,
                     patternStartBeat = t.patternStartBeat,
-                    notesClipEndBeat = t.notesClipEndBeat
+                    notesClipEndBeat = t.notesClipEndBeat,
+                    fxRack = t.fxRack?.map { it.copy(id = UUID.randomUUID().toString()) }?.toMutableList()
                 )
                 System.arraycopy(t.steps, 0, copyTrack.steps, 0, 32)
                 System.arraycopy(t.stepVelocities, 0, copyTrack.stepVelocities, 0, 32)
@@ -813,3 +820,41 @@ class FirebaseDawManager(private val context: Context) {
     }
 }
 
+/** Insert-rack slots as Firestore maps. */
+private fun fxSlotsToMaps(slots: List<com.sanwolf.daw.model.FxSlot>): List<Map<String, Any>> = slots.map { slot ->
+    mapOf(
+        "id" to slot.id,
+        "type" to slot.type,
+        "bypassed" to slot.bypassed,
+        "lowGainDb" to slot.lowGainDb,
+        "highGainDb" to slot.highGainDb,
+        "thresholdDb" to slot.thresholdDb,
+        "width" to slot.width,
+        "driveDb" to slot.driveDb,
+        "ceilingDb" to slot.ceilingDb
+    )
+}
+
+/** Reads slots written by [fxSlotsToMaps]; null when the field is absent (older documents). */
+private fun mapsToFxSlots(raw: Any?): MutableList<com.sanwolf.daw.model.FxSlot>? {
+    val list = raw as? List<*> ?: return null
+    val out = mutableListOf<com.sanwolf.daw.model.FxSlot>()
+    for (item in list) {
+        val m = item as? Map<*, *> ?: continue
+        fun f(key: String, default: Float): Float = (m[key] as? Number)?.toFloat() ?: default
+        out.add(
+            com.sanwolf.daw.model.FxSlot(
+                id = m["id"] as? String ?: UUID.randomUUID().toString(),
+                type = m["type"] as? String ?: com.sanwolf.daw.model.FxType.EQ.key,
+                bypassed = m["bypassed"] as? Boolean ?: false,
+                lowGainDb = f("lowGainDb", 0f),
+                highGainDb = f("highGainDb", 0f),
+                thresholdDb = f("thresholdDb", -18f),
+                width = f("width", 1f),
+                driveDb = f("driveDb", 0f),
+                ceilingDb = f("ceilingDb", -1f)
+            )
+        )
+    }
+    return out
+}

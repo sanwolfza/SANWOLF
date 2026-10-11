@@ -2,6 +2,7 @@ package com.sanwolf.daw.ui
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -130,7 +131,6 @@ fun SanwolfDawApp() {
     var isSidebarExpanded by remember { mutableStateOf(dawPrefs.getBoolean(PREF_LEFT_PANEL_OPEN, true)) }
     var sidebarTabName by rememberSaveable { mutableStateOf(SidebarTab.PROJECT.name) }
     val sidebarTab = runCatching { SidebarTab.valueOf(sidebarTabName) }.getOrDefault(SidebarTab.PROJECT)
-    var isPianoKeyboardExpanded by remember { mutableStateOf(true) }
     // Right mastering hub: icon rail + panel. Collapsed = gone entirely, like the left drawer.
     var isRightMixerExpanded by remember { mutableStateOf(dawPrefs.getBoolean(PREF_RIGHT_PANEL_OPEN, false)) }
     LaunchedEffect(isSidebarExpanded, isRightMixerExpanded) {
@@ -139,8 +139,14 @@ fun SanwolfDawApp() {
             .putBoolean(PREF_RIGHT_PANEL_OPEN, isRightMixerExpanded)
             .apply()
     }
-    var rightPanelTabName by rememberSaveable { mutableStateOf(RightPanelTab.MIXER.name) }
-    val rightPanelTab = runCatching { RightPanelTab.valueOf(rightPanelTabName) }.getOrDefault(RightPanelTab.MIXER)
+    var rightPanelTabName by rememberSaveable { mutableStateOf(RightPanelTab.TRACK.name) }
+    val rightPanelTab = runCatching { RightPanelTab.valueOf(rightPanelTabName) }.getOrDefault(RightPanelTab.TRACK)
+    // Live piano keyboard settings: played by the bottom piano, edited in the right panel's Keys tab
+    val keyboardSettings = remember { PianoKeyboardSettings(dawPrefs) }
+    // Piano record: keys played while armed (and playing) are written into the selected
+    // instrument track at the playhead, snapped to 1/16 like live note entry.
+    var isPianoRecording by remember { mutableStateOf(false) }
+    val heldRecordedNotes = remember { HashMap<Int, MidiNote>() }
 
     // Dialog Modals
     val sharedPrefs = remember { context.getSharedPreferences("sanwolf_daw_prefs", android.content.Context.MODE_PRIVATE) }
@@ -315,6 +321,7 @@ fun SanwolfDawApp() {
         project.timeSignatureDenominator = loaded.timeSignatureDenominator
         project.masterVolume = loaded.masterVolume
         project.masteringConfig = loaded.masteringConfig
+        project.masterRack = loaded.masterRack
         project.midiMappings.clear()
         project.midiMappings.addAll(newMappings)
         project.collaborationRoomId = loaded.collaborationRoomId
@@ -366,6 +373,7 @@ fun SanwolfDawApp() {
         project.timeSignatureDenominator = snap.timeSignatureDenominator
         project.masterVolume = snap.masterVolume
         project.masteringConfig = snap.masteringConfig
+        project.masterRack = snap.masterRack
         project.artist = snap.artist
         project.musicalKey = snap.musicalKey
         project.genre = snap.genre
@@ -578,6 +586,20 @@ fun SanwolfDawApp() {
         ?.takeIf { selectedTrack != null && editorOverrideTrackId == selectedTrack.id && autoEditorKind != EditorKind.NONE }
         ?.let { name -> runCatching { EditorKind.valueOf(name) }.getOrNull() }
     val editorKind: EditorKind = pinnedEditorKind ?: autoEditorKind
+
+    // Back from the piano roll / step sequencer (header arrow or system back): close the editor
+    // drawer, un-maximise it and show the arranger.
+    val backToArranger: () -> Unit = {
+        isEditorOpen = false
+        isEditorMaximized = false
+        viewMode = DawViewMode.ARRANGER
+    }
+    BackHandler(enabled = isEditorOpen) { backToArranger() }
+
+    val stopPianoRecording: () -> Unit = {
+        isPianoRecording = false
+        heldRecordedNotes.clear()
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -826,6 +848,7 @@ fun SanwolfDawApp() {
                                             project.swing = loadedProj.swing
                                             project.masterVolume = loadedProj.masterVolume
                                             project.masteringConfig = loadedProj.masteringConfig
+                                            project.masterRack = loadedProj.masterRack
                                             project.collaborationRoomId = loadedProj.collaborationRoomId
                                             project.isCloudSynced = loadedProj.isCloudSynced
                                             project.lastSavedTimestamp = loadedProj.lastSavedTimestamp
@@ -899,10 +922,8 @@ fun SanwolfDawApp() {
                                         trackName = selectedTrack?.name,
                                         isMaximized = isEditorMaximized,
                                         onToggleMaximize = { isEditorMaximized = !isEditorMaximized },
-                                        onClose = {
-                                            isEditorOpen = false
-                                            isEditorMaximized = false
-                                        }
+                                        onClose = backToArranger,
+                                        onBack = backToArranger
                                     )
                                     Box(
                                         modifier = Modifier
@@ -1121,33 +1142,61 @@ fun SanwolfDawApp() {
                 currentBeat = audioEngine.currentBeat,
                 isPlaying = audioEngine.isPlaying,
                 audioEngine = audioEngine,
-                isExpanded = isPianoKeyboardExpanded,
-                onToggleExpanded = { isPianoKeyboardExpanded = !isPianoKeyboardExpanded },
-                isRecording = isRecordingAudio,
-                canUndo = undoRedoManager.canUndo(),
-                canRedo = undoRedoManager.canRedo(),
+                settings = keyboardSettings,
+                isPianoRecording = isPianoRecording,
                 bpm = project.bpm,
-                onBpmChange = { project.bpm = it; projectVersion++ },
+                beatsPerBar = project.timeSignatureNumerator,
+                isMetronomeOn = isMetronomeEnabled,
                 onPlayToggle = {
                     if (audioEngine.isPlaying) audioEngine.pause() else audioEngine.play()
                 },
-                onStop = { audioEngine.stop() },
-                onRecordToggle = onRecordPressed,
-                onUndo = {
-                    // undo()/redo() return a snapshot; it has to be copied into the working project
-                    val snapshot = undoRedoManager.undo(project)
-                    if (snapshot != null) restoreSnapshot(snapshot)
-                    else Toast.makeText(context, "Nothing to undo", Toast.LENGTH_SHORT).show()
+                onStop = {
+                    audioEngine.stop()
+                    stopPianoRecording()
                 },
-                onRedo = {
-                    val snapshot = undoRedoManager.redo(project)
-                    if (snapshot != null) restoreSnapshot(snapshot)
-                    else Toast.makeText(context, "Nothing to redo", Toast.LENGTH_SHORT).show()
+                onPianoRecordToggle = {
+                    if (isPianoRecording) {
+                        stopPianoRecording()
+                    } else {
+                        val tr = selectedTrack
+                        if (tr == null || tr.type == TrackType.DRUM_MACHINE || tr.type == TrackType.AUDIO_IMPORT) {
+                            Toast.makeText(context, "Select an instrument track to record the piano into.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            heldRecordedNotes.clear()
+                            isPianoRecording = true
+                            if (!audioEngine.isPlaying) audioEngine.play()
+                        }
+                    }
                 },
-                onKeyTriggered = { pitch ->
-                    // Live record / insert note into active track if in Piano Roll mode
+                // Held -/+ steps change the tempo live; one projectVersion bump (undo entry) on release
+                onBpmChange = { project.bpm = it },
+                onBpmCommit = { projectVersion++ },
+                onMetronomeToggle = { isMetronomeEnabled = !isMetronomeEnabled },
+                onOpenKeyboardSettings = {
+                    rightPanelTabName = RightPanelTab.KEYS.name
+                    isRightMixerExpanded = true
+                },
+                onKeyDown = { pitch ->
                     selectedTrack?.let { tr ->
-                        if (isEditorOpen && editorKind == EditorKind.PIANO_ROLL) {
+                        val instrumentTrack = tr.type != TrackType.DRUM_MACHINE && tr.type != TrackType.AUDIO_IMPORT
+                        if (isPianoRecording && audioEngine.isPlaying && instrumentTrack) {
+                            // Record into the track's notes clip at the playhead, snapped to 1/16
+                            val snapBeat = Math.round(audioEngine.currentBeat * 4.0) / 4.0
+                            val note = com.sanwolf.daw.model.MidiNote(
+                                pitch = pitch,
+                                startBeat = snapBeat,
+                                lengthBeats = 0.25,
+                                velocity = keyboardSettings.velocity
+                            )
+                            tr.notes.add(note)
+                            heldRecordedNotes[pitch] = note
+                            // A cropped clip would mute notes past its edge: extend it to the bar end
+                            if (tr.notesClipEndBeat > 0.0 && snapBeat + 0.25 > tr.notesClipEndBeat) {
+                                tr.notesClipEndBeat = Math.ceil((snapBeat + 0.25) / 4.0) * 4.0
+                            }
+                            projectVersion++
+                        } else if (!isPianoRecording && isEditorOpen && editorKind == EditorKind.PIANO_ROLL) {
+                            // Live note entry into the open piano roll (unchanged behaviour)
                             val currentSnapBeat = (Math.round(audioEngine.currentBeat * 4.0) / 4.0)
                             val existingNote = tr.notes.find { it.pitch == pitch && Math.abs(it.startBeat - currentSnapBeat) < 0.25 }
                             if (existingNote == null) {
@@ -1155,6 +1204,22 @@ fun SanwolfDawApp() {
                                 projectVersion++
                             }
                         }
+                    }
+                },
+                onKeyUp = { pitch ->
+                    val note = heldRecordedNotes.remove(pitch)
+                    if (note != null) {
+                        // Held length, snapped to 1/16 (min 1/16). A loop wrap while held keeps 1/16.
+                        val held = audioEngine.currentBeat - note.startBeat
+                        val snapped = Math.round(held * 4.0) / 4.0
+                        note.lengthBeats = if (snapped >= 0.25) snapped else 0.25
+                        selectedTrack?.let { tr ->
+                            val end = note.startBeat + note.lengthBeats
+                            if (tr.notesClipEndBeat > 0.0 && end > tr.notesClipEndBeat) {
+                                tr.notesClipEndBeat = Math.ceil(end / 4.0) * 4.0
+                            }
+                        }
+                        projectVersion++
                     }
                 }
             )
@@ -1169,6 +1234,15 @@ fun SanwolfDawApp() {
         RightMixerPanel(
             project = project,
             audioEngine = audioEngine,
+            keyboardSettings = keyboardSettings,
+            selectedTrackIndex = selectedTrackIndex,
+            onSelectTrack = { selectedTrackIndex = it },
+            revision = projectVersion,
+            onRackStructureChanged = {
+                audioEngine.rebuildFxRacks(project)
+                projectVersion++
+            },
+            onRackParamsCommitted = { projectVersion++ },
             isExpanded = isRightMixerExpanded,
             onToggleExpand = { isRightMixerExpanded = !isRightMixerExpanded },
             onTrackVolumeChange = { idx, vol ->

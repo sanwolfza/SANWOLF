@@ -84,7 +84,8 @@ fun ProvideUiScale(scale: Float = LocalUiScale.current, content: @Composable () 
 object Dimens {
     // Toolbars / headers
     val toolbarHeight: Dp = 44.dp
-    val pianoHeaderHeight: Dp = 44.dp
+    /** Fixed piano transport strip (always visible; collapsing the piano hides only the keys). */
+    val pianoHeaderHeight: Dp = 40.dp
     val toolbarButton: Dp = 38.dp
     val toolbarIcon: Dp = 20.dp
 

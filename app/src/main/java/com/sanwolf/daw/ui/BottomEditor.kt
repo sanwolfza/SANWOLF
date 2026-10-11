@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -50,14 +51,18 @@ fun editorKindFor(track: TrackData?): EditorKind = when (track?.type) {
     else -> EditorKind.PIANO_ROLL
 }
 
-/** Thin title bar of the bottom editor: kind, track, maximise / restore and close. */
+/**
+ * Thin title bar of the bottom editor: back arrow (to the arranger), kind, track,
+ * maximise / restore and close. Shown for the piano roll and the step sequencer, maximised or not.
+ */
 @Composable
 fun BottomEditorHeader(
     kind: EditorKind,
     trackName: String?,
     isMaximized: Boolean,
     onToggleMaximize: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onBack: () -> Unit = onClose
 ) {
     Row(
         modifier = Modifier
@@ -65,10 +70,23 @@ fun BottomEditorHeader(
             .height(30.dp)
             .background(SanwolfPanelElevated)
             .border(0.5.dp, SanwolfPanelBorder)
-            .padding(start = 8.dp, end = 2.dp)
+            .padding(start = 0.dp, end = 2.dp)
             .testTag("bottom_editor_header"),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .size(30.dp)
+                .testTag("bottom_editor_back")
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back to the arranger",
+                tint = SanwolfGold,
+                modifier = Modifier.size(18.dp)
+            )
+        }
         Text(
             text = kind.label.uppercase(),
             fontSize = 11.sp,
