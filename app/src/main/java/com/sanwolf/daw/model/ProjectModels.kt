@@ -233,10 +233,70 @@ data class TrackData(
      * Right edge of the notes clip (beats). 0 = automatic (end of the last note). Notes that
      * start at or after a set edge are cropped: not played and not exported.
      */
-    var notesClipEndBeat: Double = 0.0
+    var notesClipEndBeat: Double = 0.0,
+    /**
+     * Insert effects rack (right panel › Track), processed in order. Nullable on purpose:
+     * TrackData has no no-arg constructor, so Gson leaves a missing key as null for projects
+     * saved before racks existed. Read it with [fxSlots]; create it with [fxRackOrCreate].
+     */
+    var fxRack: MutableList<FxSlot>? = null
 ) {
     /** True when [note] lies inside the (possibly cropped) notes clip. */
     fun isNoteInClip(note: MidiNote): Boolean = notesClipEndBeat <= 0.0 || note.startBeat < notesClipEndBeat
+
+    /** The insert slots (empty for old projects); never mutates the track. */
+    fun fxSlots(): List<FxSlot> = fxRack ?: emptyList()
+
+    /** The insert slot list, created on first use. */
+    fun fxRackOrCreate(): MutableList<FxSlot> {
+        val existing = fxRack
+        if (existing != null) return existing
+        val created = mutableListOf<FxSlot>()
+        fxRack = created
+        return created
+    }
+}
+
+/**
+ * Effect modules that can sit in a rack slot. Every type is real DSP from the engine's master
+ * chain (see audio/FxProcessors.kt), so each can run per track and on the master inserts.
+ * Stored in [FxSlot.type] by [key] so unknown future keys never break loading.
+ */
+enum class FxType(val key: String, val label: String, val shortLabel: String) {
+    EQ("eq", "EQ (low / high shelf)", "EQ"),
+    COMPRESSOR("comp", "Compressor (2:1 glue)", "Comp"),
+    STEREO_WIDTH("width", "Stereo width", "Width"),
+    LIMITER("limiter", "Limiter (drive + ceiling)", "Limiter");
+
+    companion object {
+        fun fromKey(key: String?): FxType? = values().firstOrNull { it.key == key }
+    }
+}
+
+/** Max modules per rack (track or master), FL Studio Mobile style. */
+const val FX_RACK_SLOTS = 8
+
+/**
+ * One rack slot. Parameters are plain fields (not a map) so the audio thread can read them
+ * every block while the UI edits them, without locking. Unused fields are ignored by a type.
+ * All parameters have defaults, so Gson (no-arg constructor) fills keys added later.
+ */
+data class FxSlot(
+    val id: String = UUID.randomUUID().toString(),
+    var type: String = FxType.EQ.key,
+    var bypassed: Boolean = false,
+    // EQ: shelves at 120 Hz and 6 kHz
+    var lowGainDb: Float = 0f,
+    var highGainDb: Float = 0f,
+    // Compressor: threshold (>= -0.5 dB = off), 2:1, 10/150 ms, auto make-up
+    var thresholdDb: Float = -18f,
+    // Stereo width: 0 = mono, 1 = unchanged, 2 = extra wide
+    var width: Float = 1f,
+    // Limiter: drive into it and output ceiling
+    var driveDb: Float = 0f,
+    var ceilingDb: Float = -1f
+) {
+    val fxType: FxType? get() = FxType.fromKey(type)
 }
 
 data class MasteringConfig(
@@ -281,8 +341,23 @@ data class ProjectData(
     var artist: String = "",
     var musicalKey: String = "",
     var genre: String = "",
-    var songNotes: String = ""
-)
+    var songNotes: String = "",
+    /**
+     * Master insert rack, processed on the summed mix before the mastering chain
+     * ([masteringConfig]). Nullable so projects saved before racks existed load as "no inserts".
+     */
+    var masterRack: MutableList<FxSlot>? = null
+) {
+    fun masterSlots(): List<FxSlot> = masterRack ?: emptyList()
+
+    fun masterRackOrCreate(): MutableList<FxSlot> {
+        val existing = masterRack
+        if (existing != null) return existing
+        val created = mutableListOf<FxSlot>()
+        masterRack = created
+        return created
+    }
+}
 
 enum class InstrumentCategory(val displayName: String) {
     KEYS_PAD("Keys & Piano"),

@@ -111,7 +111,67 @@ class SanwolfAudioEngine(private val context: Context) {
         set(value) {
             field = value
             if (value != null) requestPrewarm(value)
+            rebuildFxRacks(value)
         }
+
+    // ---- Insert racks (right panel). Built on the caller's thread, published as one snapshot ----
+    @Volatile
+    private var fxPlan: FxRackPlan = FxRackPlan.EMPTY
+    /** Processor per slot id, reused across rebuilds so filter / limiter state survives edits. */
+    private val fxProcessors = HashMap<String, FxProcessor>()
+    private val fxLock = Any()
+
+    /**
+     * Rebuilds the routing snapshot from the project's track racks and master inserts. Call after
+     * a slot is added, removed, reordered or a track is deleted (setting [currentProject], which
+     * every projectVersion bump does, calls it too). Parameter and bypass edits need no rebuild:
+     * the audio thread reads the slot fields every block.
+     * Audio-clip tracks are skipped: their stems play through MediaPlayer, outside this mix.
+     */
+    fun rebuildFxRacks(project: ProjectData?) {
+        if (released) return
+        try {
+            synchronized(fxLock) {
+                if (project == null) {
+                    fxPlan = FxRackPlan.EMPTY
+                    return
+                }
+                val used = HashSet<String>()
+                fun unitsFor(slots: List<com.sanwolf.daw.model.FxSlot>): Array<FxUnit> {
+                    val out = ArrayList<FxUnit>(slots.size)
+                    for (slot in slots.take(com.sanwolf.daw.model.FX_RACK_SLOTS)) {
+                        val type = slot.fxType ?: continue
+                        var proc = fxProcessors[slot.id]
+                        if (proc == null || proc.type != type) {
+                            proc = FxProcessor.create(type, SAMPLE_RATE)
+                            fxProcessors[slot.id] = proc
+                        }
+                        used.add(slot.id)
+                        out.add(FxUnit(slot, proc))
+                    }
+                    return out.toTypedArray()
+                }
+                val keys = ArrayList<String>()
+                val chains = ArrayList<Array<FxUnit>>()
+                for (t in project.tracks.toList()) {
+                    if (keys.size >= FxRackPlan.MAX_TRACK_BUSES) break
+                    if (t.type == TrackType.AUDIO_IMPORT) continue
+                    val slots = t.fxSlots()
+                    if (slots.isEmpty()) continue
+                    val chain = unitsFor(slots)
+                    if (chain.isEmpty()) continue
+                    keys.add(t.id)
+                    chains.add(chain)
+                }
+                val master = unitsFor(project.masterSlots())
+                fxProcessors.keys.retainAll(used)
+                fxPlan = FxRackPlan(keys.toTypedArray(), chains.toTypedArray(), master)
+            }
+        } catch (e: Exception) {
+            // The UI thread may be editing a rack list concurrently; the next rebuild fixes it
+            Log.w(TAG, "Insert rack rebuild skipped", e)
+        }
+    }
 
     private val prewarmExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread(r, "SanwolfPrewarm").apply { priority = Thread.NORM_PRIORITY - 1 }
@@ -209,6 +269,10 @@ class SanwolfAudioEngine(private val context: Context) {
         val bandSize = BUFFER_SIZE / 8
 
         val grScratch = FloatArray(2)
+        // Per-track insert rack buses and scratch frames
+        val busSet = FxBusSet(FxRackPlan.MAX_TRACK_BUSES, BUFFER_SIZE)
+        val fxIo = FloatArray(2)
+        val fxTmp = FloatArray(2)
 
         // Once the mix has been silent long enough to flush the limiter, idle blocks skip DSP
         var outputSilent = false
@@ -235,6 +299,16 @@ class SanwolfAudioEngine(private val context: Context) {
             val samplesPerBeat = (SAMPLE_RATE * 60.0) / bpm
             val vol = (proj?.masterVolume ?: masterVolume).coerceIn(0f, 1.5f)
             masterBus.configure(proj?.masteringConfig, vol)
+
+            // Insert racks: publish this block's track buses and configure every module
+            val plan = fxPlan
+            val busCount = minOf(plan.trackKeys.size, plan.trackChains.size, FxRackPlan.MAX_TRACK_BUSES)
+            busSet.count = busCount
+            for (b in 0 until busCount) {
+                busSet.keys[b] = plan.trackKeys[b]
+                configureFxChain(plan.trackChains[b])
+            }
+            configureFxChain(plan.master)
 
             // ---- Sequencer + voice rendering, in small chunks for tight step timing ----
             var anyVoiceOutput = false
@@ -302,8 +376,25 @@ class SanwolfAudioEngine(private val context: Context) {
                         }
                     }
                 }
-                if (voiceManager.renderBlock(n, leftBlock, rightBlock, offset)) anyVoiceOutput = true
+                if (voiceManager.renderBlock(n, leftBlock, rightBlock, offset, busSet, softClipMain = false)) anyVoiceOutput = true
                 offset += n
+            }
+            // Track insert racks: process each bus and sum it into the main mix, then soft-clip
+            for (b in 0 until busCount) {
+                val chain = plan.trackChains[b]
+                val bl = busSet.left[b]
+                val br = busSet.right[b]
+                for (i in 0 until BUFFER_SIZE) {
+                    fxIo[0] = bl[i]
+                    fxIo[1] = br[i]
+                    runFxChain(chain, fxIo, fxTmp)
+                    leftBlock[i] += fxIo[0]
+                    rightBlock[i] += fxIo[1]
+                }
+            }
+            for (i in 0 until BUFFER_SIZE) {
+                leftBlock[i] = voiceManager.softClip(leftBlock[i])
+                rightBlock[i] = voiceManager.softClip(rightBlock[i])
             }
             // Audio clips placed later on the timeline start when the playhead reaches them
             if (playing && proj != null && isPlaying) checkStemClipStarts(proj, blockStartBeat, currentBeat)
@@ -317,8 +408,18 @@ class SanwolfAudioEngine(private val context: Context) {
             var goniometerSampleIdx = 0
             var gonioCountdown = 0
 
+            val masterInserts = plan.master
+            val hasMasterInserts = masterInserts.isNotEmpty()
             for (i in 0 until BUFFER_SIZE) {
-                masterBus.process(leftBlock[i], rightBlock[i], limited)
+                if (hasMasterInserts) {
+                    // Master insert rack runs on the summed mix, before the mastering chain
+                    fxIo[0] = leftBlock[i]
+                    fxIo[1] = rightBlock[i]
+                    runFxChain(masterInserts, fxIo, fxTmp)
+                    masterBus.process(fxIo[0], fxIo[1], limited)
+                } else {
+                    masterBus.process(leftBlock[i], rightBlock[i], limited)
+                }
                 val sampleL = limited[0]
                 val sampleR = limited[1]
                 loudnessMeter.process(sampleL, sampleR)
@@ -382,6 +483,8 @@ class SanwolfAudioEngine(private val context: Context) {
             val blockSilent = !anyVoiceOutput && maxLeft < 1e-5f && maxRight < 1e-5f
             if (blockSilent && !outputSilent) {
                 masterBus.reset()
+                for (chain in plan.trackChains) for (u in chain) u.processor.reset()
+                for (u in plan.master) u.processor.reset()
             }
             outputSilent = blockSilent
 
@@ -544,7 +647,7 @@ class SanwolfAudioEngine(private val context: Context) {
         val multisample = MultisampleLibrary.find(instrumentQuery)
         if (multisample != null) {
             val msVoice = multisample.createVoice(pitch, durationSec, finalVol, finalPan)
-            if (msVoice != null) voiceManager.addVoice(msVoice)
+            if (msVoice != null) voiceManager.addVoice(msVoice, track?.id)
             return
         }
 
@@ -558,7 +661,7 @@ class SanwolfAudioEngine(private val context: Context) {
             pan = finalPan
         )
 
-        voiceManager.addVoice(voice)
+        voiceManager.addVoice(voice, track?.id)
     }
 
     fun triggerMidiNote(pitch: Int, track: TrackData? = null, velocity: Float = 0.85f) {
@@ -603,11 +706,12 @@ class SanwolfAudioEngine(private val context: Context) {
         drumName: String,
         velocity: Float = 0.8f,
         pan: Float = 0f,
-        definition: InstrumentDefinition? = null
+        definition: InstrumentDefinition? = null,
+        busTrackId: String? = null
     ) {
         val def = definition ?: InstrumentLibrary.getById(drumName)
         val drumVoice: ActiveVoice = InstrumentVoices.createDrumVoice(def.drumType.ifEmpty { def.id }, velocity, pan)
-        voiceManager.addVoice(drumVoice)
+        voiceManager.addVoice(drumVoice, busTrackId)
     }
 
     /**
@@ -617,9 +721,9 @@ class SanwolfAudioEngine(private val context: Context) {
     fun triggerDrumTrack(track: TrackData, velocity: Float, pan: Float = track.pan) {
         val pcm = PcmSampleCache.get(track.audioUri)
         if (pcm != null) {
-            voiceManager.addVoice(SampleVoice(pcm, velocity, pan))
+            voiceManager.addVoice(SampleVoice(pcm, velocity, pan), track.id)
         } else {
-            triggerDrumSound(track.synthPresetName.ifEmpty { track.name }, velocity, pan)
+            triggerDrumSound(track.synthPresetName.ifEmpty { track.name }, velocity, pan, busTrackId = track.id)
         }
     }
 

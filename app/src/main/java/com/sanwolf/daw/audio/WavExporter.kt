@@ -49,6 +49,11 @@ object WavExporter {
                 continue
             }
 
+            // A track with an insert rack renders into its own buffer, runs through the rack
+            // (same modules as live playback) and is then summed into the mix.
+            val rackChain = buildExportChain(track.fxSlots())
+            val target: ShortArray = if (rackChain.isNotEmpty()) ShortArray(pcmData.size) else pcmData
+
             val stepCount = track.stepCount.coerceAtLeast(1)
             // Patterns start at their arranger position and loop from there
             val startStep = (track.patternStartBeat * 4.0 + 0.5).toInt().coerceAtLeast(0)
@@ -63,7 +68,7 @@ object WavExporter {
                         track.audioUri?.let { PcmSampleCache.get(it) ?: PcmSampleCache.load(it) }
                     } else null
                     renderDrumIntoBuffer(
-                        pcmData, stepStartSample, totalSamples, track.synthPresetName.ifEmpty { track.name },
+                        target, stepStartSample, totalSamples, track.synthPresetName.ifEmpty { track.name },
                         vel, track.pan, sampleRate, samplePcm
                     )
                 }
@@ -74,7 +79,7 @@ object WavExporter {
                 val startSample = (note.startBeat * samplesPerBeat).toInt()
                 val durationSamples = (note.lengthBeats * samplesPerBeat).toInt()
                 renderSynthNoteIntoBuffer(
-                    pcmData,
+                    target,
                     startSample,
                     durationSamples,
                     totalSamples,
@@ -83,6 +88,8 @@ object WavExporter {
                     sampleRate
                 )
             }
+
+            if (target !== pcmData) mixThroughChain(target, pcmData, rackChain)
         }
 
         applyMasteringToBuffer(pcmData, project)
@@ -221,14 +228,50 @@ object WavExporter {
         return meter.integratedLufs()
     }
 
-    /** Runs the same master bus as live playback (see [MasterBusProcessor]) over the render. */
+    /** Fresh processors for an export pass (state starts clean, like playback from silence). */
+    private fun buildExportChain(slots: List<com.sanwolf.daw.model.FxSlot>): Array<FxUnit> {
+        val units = ArrayList<FxUnit>()
+        for (slot in slots.take(com.sanwolf.daw.model.FX_RACK_SLOTS)) {
+            val proc = FxProcessor.createFor(slot, 44100) ?: continue
+            proc.configure(slot)
+            units.add(FxUnit(slot, proc))
+        }
+        return units.toTypedArray()
+    }
+
+    /** Processes a track's own render through its rack and adds it to [mix]. */
+    private fun mixThroughChain(track: ShortArray, mix: ShortArray, chain: Array<FxUnit>) {
+        val io = FloatArray(2)
+        val tmp = FloatArray(2)
+        val frames = minOf(track.size, mix.size) / 2
+        for (f in 0 until frames) {
+            io[0] = track[f * 2] / 32768f
+            io[1] = track[f * 2 + 1] / 32768f
+            runFxChain(chain, io, tmp)
+            val l = mix[f * 2] + (io[0] * 32767f).toInt()
+            val r = mix[f * 2 + 1] + (io[1] * 32767f).toInt()
+            mix[f * 2] = l.coerceIn(-32768, 32767).toShort()
+            mix[f * 2 + 1] = r.coerceIn(-32768, 32767).toShort()
+        }
+    }
+
+    /**
+     * Runs the master insert rack, then the same master bus as live playback
+     * (see [MasterBusProcessor]), over the render.
+     */
     private fun applyMasteringToBuffer(buffer: ShortArray, project: ProjectData) {
         val bus = MasterBusProcessor(44100)
         bus.configure(project.masteringConfig, project.masterVolume)
+        val inserts = buildExportChain(project.masterSlots())
+        val io = FloatArray(2)
+        val tmp = FloatArray(2)
         val out = FloatArray(2)
         val numFrames = buffer.size / 2
         for (i in 0 until numFrames) {
-            bus.process(buffer[i * 2] / 32768f, buffer[i * 2 + 1] / 32768f, out)
+            io[0] = buffer[i * 2] / 32768f
+            io[1] = buffer[i * 2 + 1] / 32768f
+            if (inserts.isNotEmpty()) runFxChain(inserts, io, tmp)
+            bus.process(io[0], io[1], out)
             buffer[i * 2] = (out[0] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
             buffer[i * 2 + 1] = (out[1] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
         }
