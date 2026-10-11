@@ -13,6 +13,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -959,15 +966,24 @@ fun PianoRollView(
                 .clip(RoundedCornerShape(6.dp))
                 .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(6.dp))
         ) {
-            // Left Piano Keys Column
+            // Left Piano Keys Column. The note grid's verticalScroll is the only owner of
+            // verticalScrollState; the keys are just offset by its value (and a swipe on them
+            // scrolls that same state), so keys and grid rows can never drift apart.
             val keyHeight = 22.dp
-            Column(
+            Box(
                 modifier = Modifier
                     .width(60.dp)
                     .fillMaxHeight()
-                    .verticalScroll(verticalScrollState)
+                    .clipToBounds()
                     .background(SanwolfPanel)
                     .border(androidx.compose.foundation.BorderStroke(1.dp, SanwolfPanelBorder))
+                    .scrollable(state = verticalScrollState, orientation = Orientation.Vertical, reverseDirection = true)
+            ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                    .offset { IntOffset(0, -verticalScrollState.value) }
             ) {
                 pitches.forEach { pitch ->
                     val noteName = noteNames[pitch % 12]
@@ -993,6 +1009,8 @@ fun PianoRollView(
                         )
                     }
                 }
+            }
+
             }
 
             // Right Grid with Notes Canvas
@@ -1043,8 +1061,9 @@ fun PianoRollView(
 
                                     if (!change.pressed) {
                                         // Pointer released
-                                        if (!isVelocityDragging && !isMovingNote) {
-                                            // Handle Tap (Add or Select / Delete)
+                                        if (!isVelocityDragging && !isMovingNote && totalDragDistance <= viewConfiguration.touchSlop) {
+                                            // Handle Tap (Add or Select / Delete). A finger that moved past the
+                                            // touch slop was scrolling the grid, not tapping.
                                             if (toolMode == PianoRollToolMode.ERASE) {
                                                 if (targetNote != null) {
                                                     onDeleteNote(targetNote.pitch, targetNote.startBeat)
@@ -1354,15 +1373,19 @@ fun PianoRollView(
                     )
                 }
 
-                // Right Velocity Stems Canvas (Scrolled synchronously with gridScrollState)
+                // Right Velocity Stems Canvas: follows the grid's horizontal scroll. The grid owns
+                // gridScrollState; this lane is offset by its value and a swipe here scrolls it.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .horizontalScroll(gridScrollState)
+                        .clipToBounds()
+                        .scrollable(state = gridScrollState, orientation = Orientation.Horizontal, reverseDirection = true)
                 ) {
                     val laneWidth = beatWidth * totalBeats
                     Canvas(
                         modifier = Modifier
+                            .wrapContentWidth(align = Alignment.Start, unbounded = true)
+                            .offset { IntOffset(-gridScrollState.value, 0) }
                             .width(laneWidth)
                             .fillMaxHeight()
                             .background(SanwolfBlack)

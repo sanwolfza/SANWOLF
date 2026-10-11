@@ -90,6 +90,8 @@ fun StepSequencerView(
     var isPadMode by remember { mutableStateOf(false) }
     // 0: Page 1 (1-16), 1: Page 2 (17-32), 2: Page 3 (33-48), 3: Page 4 (49-64), -1: Full Horizontal Scroll
     var activePage by remember { mutableIntStateOf(0) }
+    // One horizontal scroll for every row in "ALL 64" mode, so the step columns stay lined up
+    val allStepsScroll = rememberScrollState()
 
     Column(
         modifier = modifier
@@ -264,6 +266,7 @@ fun StepSequencerView(
                             currentStep = currentStep,
                             isPlaying = isPlaying,
                             activePage = activePage,
+                            allStepsScroll = allStepsScroll,
                             revision = revision,
                             isSelected = trackIndex == selectedTrackIndex,
                             onStepToggle = { step -> onStepToggle(trackIndex, step) },
@@ -326,6 +329,7 @@ private fun SequencerTrackRow(
     currentStep: Int,
     isPlaying: Boolean,
     activePage: Int, // 0: 1-16, 1: 17-32, 2: 33-48, 3: 49-64, -1: Scroll All 64
+    allStepsScroll: androidx.compose.foundation.ScrollState,
     revision: Int,
     isSelected: Boolean,
     onStepToggle: (Int) -> Unit,
@@ -381,13 +385,16 @@ private fun SequencerTrackRow(
 
         // Polyrhythm & Step Count Selector Button (Supports 20+ Steps: 20, 24, 28, 32, 48, 64)
         Box {
+            // Fixed width: "8s" and "64s" must not shift the step grid between rows
             Box(
                 modifier = Modifier
+                    .width(40.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(SanwolfPanelElevated)
                     .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(4.dp))
                     .clickable { showPolyMenu = true }
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .padding(vertical = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "${track.stepCount}s",
@@ -427,15 +434,15 @@ private fun SequencerTrackRow(
 
         // Step Buttons Row (Supports Page Mode and Full Scroll Mode)
         if (activePage == -1) {
-            // Full 64-step horizontal scrollable row
-            val hScrollState = rememberScrollState()
+            // Full 64-step row. Every row renders all 64 steps and shares one ScrollState, so the
+            // rows have identical content widths and scroll together.
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .horizontalScroll(hScrollState),
+                    .horizontalScroll(allStepsScroll),
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                val totalStepsToRender = maxOf(track.stepCount, 32).coerceAtMost(64)
+                val totalStepsToRender = 64
                 for (step in 0 until totalStepsToRender) {
                     StepButton(
                         step = step,

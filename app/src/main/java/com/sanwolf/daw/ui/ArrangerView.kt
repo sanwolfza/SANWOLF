@@ -13,6 +13,8 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -543,6 +545,9 @@ fun ArrangerView(
                         .weight(1f)
                         .fillMaxHeight()
                         .background(SanwolfPanelElevated)
+                        // Same ScrollState as the lanes: swiping the ruler scrolls the timeline,
+                        // and the bar numbers and playhead are drawn from hScroll.value.
+                        .scrollable(state = hScroll, orientation = Orientation.Horizontal, reverseDirection = true)
                         .pointerInput(beatPx, snapBeats) {
                             detectTapGestures { pos ->
                                 val beat = ((pos.x + hScroll.value) / beatPx).toDouble()
@@ -626,8 +631,13 @@ fun ArrangerView(
                         .fillMaxSize()
                         .verticalScroll(vScroll)
                 ) {
-                    // Track headers
-                    Column(modifier = Modifier.width(ARR_HEADER_WIDTH)) {
+                    // Track headers: same vertical scroll as the lanes (one verticalScroll on this
+                    // Row), and a horizontal swipe here scrolls the timeline too.
+                    Column(
+                        modifier = Modifier
+                            .width(ARR_HEADER_WIDTH)
+                            .scrollable(state = hScroll, orientation = Orientation.Horizontal, reverseDirection = true)
+                    ) {
                         project.tracks.forEachIndexed { index, track ->
                             androidx.compose.runtime.key(track.id) {
                                 TrackHeaderItem(
