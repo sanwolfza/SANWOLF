@@ -16,12 +16,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.ZoomOutMap
@@ -49,6 +53,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanwolf.daw.BuildConfig
 import com.sanwolf.daw.model.ProjectData
+import com.sanwolf.daw.ui.LegalAssets
+import com.sanwolf.daw.ui.LegalDocumentDialog
+import com.sanwolf.daw.ui.OpenSourceLicencesDialog
 import com.sanwolf.daw.ui.SoundLicencesDialog
 import com.sanwolf.daw.ui.theme.LocalUiSizeState
 import com.sanwolf.daw.ui.theme.SanwolfCyan
@@ -76,6 +83,10 @@ fun SettingsSection(
 ) {
     var masterVol by remember(loadKey) { mutableFloatStateOf(project.masterVolume) }
     var showSoundLicences by remember { mutableStateOf(false) }
+    var showYourMusic by remember { mutableStateOf(false) }
+    var showOssLicences by remember { mutableStateOf(false) }
+    var showTerms by remember { mutableStateOf(false) }
+    var showPrivacy by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SidebarSectionHeader("CLICK & RECORDING")
@@ -157,10 +168,54 @@ fun SettingsSection(
             tint = SanwolfTextSecondary,
             onClick = { showSoundLicences = true }
         )
+        SidebarActionRow(
+            label = "Your music & sounds",
+            subtitle = "You own your songs; the sounds are royalty-free",
+            icon = Icons.Default.MusicNote,
+            tint = SanwolfGold,
+            onClick = { showYourMusic = true }
+        )
+        SidebarActionRow(
+            label = "Open-source licences",
+            subtitle = "Libraries used to build the app",
+            icon = Icons.Default.Code,
+            tint = SanwolfTextSecondary,
+            onClick = { showOssLicences = true }
+        )
+        SidebarActionRow(
+            label = "Terms of use",
+            icon = Icons.Default.Description,
+            tint = SanwolfTextSecondary,
+            onClick = { showTerms = true }
+        )
+        SidebarActionRow(
+            label = "Privacy policy",
+            icon = Icons.Default.Lock,
+            tint = SanwolfTextSecondary,
+            onClick = { showPrivacy = true }
+        )
+        Text(
+            "© 2026 SANWOLF. All rights reserved.",
+            fontSize = 11.sp,
+            color = SanwolfTextSecondary,
+            modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+        )
     }
 
     if (showSoundLicences) {
         SoundLicencesDialog(onDismiss = { showSoundLicences = false })
+    }
+    if (showYourMusic) {
+        LegalDocumentDialog(title = "Your music & sounds", assetPath = LegalAssets.YOUR_MUSIC, onDismiss = { showYourMusic = false })
+    }
+    if (showOssLicences) {
+        OpenSourceLicencesDialog(onDismiss = { showOssLicences = false })
+    }
+    if (showTerms) {
+        LegalDocumentDialog(title = "Terms of use", assetPath = LegalAssets.TERMS, onDismiss = { showTerms = false })
+    }
+    if (showPrivacy) {
+        LegalDocumentDialog(title = "Privacy policy", assetPath = LegalAssets.PRIVACY, onDismiss = { showPrivacy = false })
     }
 }
 

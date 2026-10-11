@@ -1,0 +1,21 @@
+Copyright (c) 2026 SANWOLF. All rights reserved.
+
+SANWOLF DAW, including its source code, design, name, logo, artwork and the
+bundled SANWOLF factory sounds, is proprietary software owned by SANWOLF.
+
+No licence is granted to copy, modify, merge, publish, distribute,
+sublicense, sell or otherwise use this software or any part of it, in source
+or binary form, without the prior written permission of SANWOLF. Viewing this
+repository does not grant any rights to its contents.
+
+Third-party components bundled with the app (open-source libraries and
+third-party sound libraries) remain under their own licences. They are listed
+in the app at Settings > About > Open-source licences and Sound licences, and
+in app/src/main/assets/legal/ (oss_licenses.json and the licence texts).
+
+How app users may use the bundled sounds in their own music is described in
+the app at Settings > About > Your music & sounds.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+Contact: sanwolfza@gmail.com
