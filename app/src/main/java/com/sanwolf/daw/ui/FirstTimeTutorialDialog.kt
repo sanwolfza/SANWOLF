@@ -1,39 +1,37 @@
 package com.sanwolf.daw.ui
 
 import android.content.Context
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Piano
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,14 +49,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.sanwolf.daw.ui.theme.SanwolfBlack
-import com.sanwolf.daw.ui.theme.SanwolfCyan
 import com.sanwolf.daw.ui.theme.SanwolfGold
-import com.sanwolf.daw.ui.theme.SanwolfLime
-import com.sanwolf.daw.ui.theme.SanwolfMagenta
+import com.sanwolf.daw.ui.theme.SanwolfGoldDim
 import com.sanwolf.daw.ui.theme.SanwolfPanel
 import com.sanwolf.daw.ui.theme.SanwolfPanelBorder
 import com.sanwolf.daw.ui.theme.SanwolfPanelElevated
@@ -66,284 +64,244 @@ import com.sanwolf.daw.ui.theme.SanwolfTextMuted
 import com.sanwolf.daw.ui.theme.SanwolfTextPrimary
 import com.sanwolf.daw.ui.theme.SanwolfTextSecondary
 
-private data class TutorialStep(
+/** SharedPreferences file and key shared with SanwolfDawApp's first-launch check. */
+private const val TUTORIAL_PREFS = "sanwolf_daw_prefs"
+private const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
+
+private class TutorialStep(
     val title: String,
     val subtitle: String,
-    val description: String,
     val icon: ImageVector,
-    val accentColor: Color,
     val tips: List<String>
 )
 
+/** The five steps, written for the current app (blank New Project, Add-track picker, drawers…). */
+private val TUTORIAL_STEPS = listOf(
+    TutorialStep(
+        title = "Start a song",
+        subtitle = "New project, then + Track",
+        icon = Icons.Default.AddCircle,
+        tips = listOf(
+            "Left panel › Project › New project starts a blank song: no tracks yet.",
+            "Tap + Track (top left of the arranger) to open the track picker.",
+            "Pick a tab (Drums, Keys, Synths, Bass, Strings & Plucked, Perc & Mallets, World or Audio) and tap a tile. The track is added, selected and its editor opens.",
+            "Tap ▶ on a tile, or hold it, to hear it first. The Audio tab records your mic or imports a file."
+        )
+    ),
+    TutorialStep(
+        title = "Arranger & editors",
+        subtitle = "Tap a clip to edit it",
+        icon = Icons.Default.GridView,
+        tips = listOf(
+            "Tap a track or clip to select it. The editor opens in a drawer under the arranger: piano roll for instruments, step sequencer for drums.",
+            "Tap the grid to add or remove notes and steps. The maximise button gives the editor the whole screen.",
+            "The back arrow in the editor bar, or your phone's Back, returns to the arranger.",
+            "Hold and drag a clip to move it; drag its right edge to resize. The track menu renames, moves, deletes or changes the instrument."
+        )
+    ),
+    TutorialStep(
+        title = "Piano strip & transport",
+        subtitle = "Play, record, tempo, undo",
+        icon = Icons.Default.Piano,
+        tips = listOf(
+            "Play / Pause and Stop sit on the strip above the keys. Record (top toolbar) records your mic as a new audio track.",
+            "The strip's record button writes what you play on the keys into the selected instrument track.",
+            "BPM − / + change the tempo (hold to repeat, tap the number to type it). The metronome button toggles the click.",
+            "Undo and Redo are on the strip. The arrow at its end shows or hides the piano keys."
+        )
+    ),
+    TutorialStep(
+        title = "Side panels & FX",
+        subtitle = "Edge tabs, Track · Master · Keys",
+        icon = Icons.Default.Tune,
+        tips = listOf(
+            "Both side panels collapse completely. Tap the small edge tab on the left or right side of the screen to bring one back.",
+            "Left panel: Project, Samples, Song info, Settings and Studio tools.",
+            "Right panel tabs: Track (volume, pan and the FX rack), Master (master chain and inserts) and Keys (octave, range, key size, velocity).",
+            "Each FX rack holds up to 8 slots (EQ, Compressor, Width, Limiter), processed in order."
+        )
+    ),
+    TutorialStep(
+        title = "Master, export & projects",
+        subtitle = "Finish and share your song",
+        icon = Icons.Default.AutoAwesome,
+        tips = listOf(
+            "Master tab › AI mastering assistant: play your song so it can measure, pick a target and genre, then Suggest. Compare A / B, then Apply (undoable).",
+            "Export renders WAV (16 or 24-bit), MP3, AAC or FLAC, or MIDI. It saves to Music and has a Share button.",
+            "Projects save automatically a moment after each edit and when you leave the app. The last project reopens on launch.",
+            "Left panel › Project › All projects… opens, renames, duplicates or shares your songs."
+        )
+    )
+)
+
+/**
+ * Getting-started tutorial: opened on first launch and from Settings › Help & tutorial.
+ *
+ * Every way out (Close, Skip, Finish, Back outside the dialog, "Don't show again") dismisses it
+ * and writes `tutorial_completed`. "Don't show on startup" (checked by default) decides the value
+ * written by Close / Skip / Finish, so unticking it brings the tutorial back next launch; the
+ * "Don't show again" button always writes true. Content scrolls, so nothing clips at compact UI
+ * sizes. It never reads the project, so it is safe with zero tracks.
+ */
 @Composable
 fun FirstTimeTutorialDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("sanwolf_daw_prefs", Context.MODE_PRIVATE) }
-    var dontShowAgain by remember { mutableStateOf(false) }
-
-    val steps = remember {
-        listOf(
-            TutorialStep(
-                title = "WELCOME TO SANWOLF DAW",
-                subtitle = "Next-Generation Studio Workstation",
-                description = "SANWOLF is a complete mobile music production studio featuring multi-track sequencing, real-time polyphonic synthesizers, modular patching, and AI song generation.",
-                icon = Icons.Default.Layers,
-                accentColor = SanwolfGold,
-                tips = listOf(
-                    "Switch DAW modes anytime via the top mode tabs (Arrange, Steps, Piano Roll, Modular, Pads, Tools).",
-                    "Monitor stereo peak levels with the real-time VU meter in the top transport bar.",
-                    "Use Immersion Focus mode to dissolve toolbars for distraction-free producing."
-                )
-            ),
-            TutorialStep(
-                title = "ARRANGER & TIMELINE",
-                subtitle = "Multi-Track Stems & Routing",
-                description = "Build full tracks with Melodic Synths, 808 Kits, Modular Sub-racks, Ambient Risers, and Vocal stem imports.",
-                icon = Icons.Default.GridView,
-                accentColor = SanwolfCyan,
-                tips = listOf(
-                    "Tap '+ Melodic Synth' or '+ 808' at the top left of the Arranger to add new tracks.",
-                    "Slide volume or toggle Mute (M) / Solo (S) directly on any track lane.",
-                    "Expand VST effect racks and filter automation curves with the sliders on each track."
-                )
-            ),
-            TutorialStep(
-                title = "FULL-SCREEN PIANO ROLL",
-                subtitle = "6-Octave Polyphonic Composition",
-                description = "Compose chords and leads with the dedicated full-screen Piano Roll editor spanning 73 semitones (C1 to C7).",
-                icon = Icons.Default.Piano,
-                accentColor = SanwolfLime,
-                tips = listOf(
-                    "Tap the note icon on any instrument track in the Arranger to edit in full screen.",
-                    "Tap on the grid to place or remove notes snapped to the beat grid.",
-                    "Use Chord Stamper to lay down instant Minor 7th, Major 9th, or Suspended chords.",
-                    "Quantize your composition into Natural Minor, Dorian, Blues, or Pentatonic scales."
-                )
-            ),
-            TutorialStep(
-                title = "STEP SEQUENCER & DRUM PADS",
-                subtitle = "Polyrhythms & Trap Grooves",
-                description = "Lay down hard-hitting drum grooves with custom step counts, per-step velocity accents, and live MPC-style velocity drum pads.",
-                icon = Icons.Default.MusicNote,
-                accentColor = SanwolfMagenta,
-                tips = listOf(
-                    "Program polyrhythms by setting 12 or 7 steps on Hi-Hats against 16-step 808 kicks.",
-                    "Apply pre-loaded rhythm presets like Trap 808, Polyrhythm 3:4, and Boom Bap.",
-                    "Switch to PADS mode for tactile finger-drumming with instant sound previews."
-                )
-            ),
-            TutorialStep(
-                title = "AI COMPOSER & MASTERING",
-                subtitle = "Afro House, Amapiano, Jazz & More",
-                description = "Leverage Gemini AI to generate full multi-track productions with genuine genre-specific stems, then master to commercial loudness.",
-                icon = Icons.Default.AutoAwesome,
-                accentColor = SanwolfGold,
-                tips = listOf(
-                    "Tap 'AI MUSIC GEN' to generate full songs in Afro House, Amapiano, Gqom, Deep House, or Jazz.",
-                    "Open the Mastering Suite to dial in target LUFS, Limiter ceiling, and 3-Band Parametric EQ.",
-                    "Export lossless WAV stems or standard MIDI files with the Export button."
-                )
-            )
+    val prefs = remember { context.getSharedPreferences(TUTORIAL_PREFS, Context.MODE_PRIVATE) }
+    // Opened on first launch: not completed yet, so default to "don't show on startup" ticked
+    // (closing it once is enough). Reopened from Settings: reflects the stored choice.
+    var dontShowOnStartup by remember {
+        mutableStateOf(
+            if (prefs.contains(KEY_TUTORIAL_COMPLETED)) prefs.getBoolean(KEY_TUTORIAL_COMPLETED, true) else true
         )
     }
+    var stepIndex by remember { mutableIntStateOf(0) }
+    var dismissed by remember { mutableStateOf(false) }
 
-    var currentStepIndex by remember { mutableIntStateOf(0) }
-    val step = steps[currentStepIndex]
-
-    fun finishTutorial() {
-        if (dontShowAgain) {
-            prefs.edit().putBoolean("tutorial_completed", true).apply()
-        }
+    fun close(completed: Boolean) {
+        if (dismissed) return
+        dismissed = true
+        // commit(): tiny write, and it must survive even if the app is killed right after
+        runCatching { prefs.edit().putBoolean(KEY_TUTORIAL_COMPLETED, completed).commit() }
         onDismiss()
     }
 
-    ScaledDialog(onDismissRequest = { finishTutorial() }) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.5.dp, step.accentColor.copy(alpha = 0.6f), RoundedCornerShape(16.dp)),
-            color = SanwolfPanel
+    val steps = TUTORIAL_STEPS
+    val index = stepIndex.coerceIn(0, steps.size - 1)
+    val step = steps[index]
+    val isLast = index == steps.size - 1
+
+    ScaledDialog(
+        onDismissRequest = { close(dontShowOnStartup) },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
+            val maxH: Dp = maxHeight * 0.94f
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth(0.94f)
+                    .heightIn(max = maxH)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(SanwolfBlack)
+                    .border(1.5.dp, SanwolfGold.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .testTag("tutorial_dialog")
             ) {
-                // Header with step badge & close button
+                // Header: step badge, title, close
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(step.accentColor.copy(alpha = 0.15f))
-                                .border(1.dp, step.accentColor, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "STEP ${currentStepIndex + 1} OF ${steps.size}",
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Black,
-                                color = step.accentColor
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = { finishTutorial() },
-                        modifier = Modifier.size(28.dp).testTag("close_tutorial_button")
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(SanwolfGold.copy(alpha = 0.15f))
+                            .border(1.dp, SanwolfGold, CircleShape),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close Tutorial",
-                            tint = SanwolfTextMuted,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Icon(step.icon, contentDescription = null, tint = SanwolfGold, modifier = Modifier.size(18.dp))
                     }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Animated step content
-                AnimatedContent(
-                    targetState = step,
-                    transitionSpec = {
-                        slideInHorizontally { width -> width } togetherWith slideOutHorizontally { width -> -width }
-                    },
-                    label = "tutorial_step_transition"
-                ) { targetStep ->
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        // Icon & Title
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .clip(CircleShape)
-                                    .background(targetStep.accentColor.copy(alpha = 0.2f))
-                                    .border(1.5.dp, targetStep.accentColor, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = targetStep.icon,
-                                    contentDescription = targetStep.title,
-                                    tint = targetStep.accentColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-
-                            Column {
-                                Text(
-                                    text = targetStep.title,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = SanwolfTextPrimary,
-                                    letterSpacing = 0.5.sp
-                                )
-                                Text(
-                                    text = targetStep.subtitle,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = targetStep.accentColor
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Description
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = targetStep.description,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            color = SanwolfTextSecondary
+                            text = "STEP ${index + 1} OF ${steps.size}",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = SanwolfGoldDim
                         )
+                        Text(
+                            text = step.title,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                            color = SanwolfGold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = step.subtitle,
+                            fontSize = 11.sp,
+                            color = SanwolfTextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(SanwolfPanelElevated)
+                            .clickable { close(dontShowOnStartup) }
+                            .testTag("close_tutorial_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close tutorial", tint = SanwolfTextPrimary, modifier = Modifier.size(18.dp))
+                    }
+                }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                        // Tips Card
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(SanwolfBlack)
-                                .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(8.dp))
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "QUICK TIPS:",
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = targetStep.accentColor
-                            )
-                            targetStep.tips.forEach { tip ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.Top,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = "•",
-                                        color = targetStep.accentColor,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = tip,
-                                        fontSize = 11.sp,
-                                        color = SanwolfTextPrimary,
-                                        lineHeight = 15.sp
-                                    )
-                                }
-                            }
+                // Scrollable body: takes what is left and never pushes the buttons off screen
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(SanwolfPanel)
+                        .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(8.dp))
+                        .verticalScroll(rememberScrollState())
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    step.tips.forEach { tip ->
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                            Text("•", color = SanwolfGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(tip, color = SanwolfTextPrimary, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.weight(1f))
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Step Indicators (Dots)
+                // Step dots (tap to jump)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    steps.forEachIndexed { idx, s ->
-                        val isSelected = idx == currentStepIndex
+                    steps.indices.forEach { i ->
+                        val selected = i == index
                         Box(
                             modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .size(if (isSelected) 20.dp else 8.dp, 8.dp)
+                                .padding(horizontal = 3.dp)
+                                .size(if (selected) 18.dp else 8.dp, 8.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(if (isSelected) s.accentColor else SanwolfPanelElevated)
-                                .clickable { currentStepIndex = idx }
+                                .background(if (selected) SanwolfGold else SanwolfPanelElevated)
+                                .clickable { stepIndex = i }
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                // "Don't show again" Checkbox
+                // "Don't show on startup" (works both ways)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { dontShowAgain = !dontShowAgain },
+                        .clickable { dontShowOnStartup = !dontShowOnStartup },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(
-                        checked = dontShowAgain,
-                        onCheckedChange = { dontShowAgain = it },
+                        checked = dontShowOnStartup,
+                        onCheckedChange = { dontShowOnStartup = it },
+                        modifier = Modifier.size(32.dp),
                         colors = CheckboxDefaults.colors(
                             checkedColor = SanwolfGold,
                             uncheckedColor = SanwolfTextMuted,
@@ -351,72 +309,68 @@ fun FirstTimeTutorialDialog(
                         )
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Don't show this tutorial on startup",
-                        fontSize = 11.sp,
-                        color = SanwolfTextSecondary
-                    )
+                    Text("Don't show on startup", fontSize = 11.sp, color = SanwolfTextSecondary)
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                // Action Navigation Buttons
+                // Buttons: Skip / Back · Don't show again · Next / Finish
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (currentStepIndex > 0) {
-                        Button(
-                            onClick = { currentStepIndex-- },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = SanwolfPanelElevated,
-                                contentColor = SanwolfTextPrimary
-                            ),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("BACK", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    if (index == 0) {
+                        TutorialButton("SKIP", SanwolfPanelElevated, SanwolfTextPrimary, Modifier.weight(1f).testTag("skip_tutorial_button")) {
+                            close(dontShowOnStartup)
                         }
                     } else {
-                        Button(
-                            onClick = { finishTutorial() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.Transparent,
-                                contentColor = SanwolfTextMuted
-                            ),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("SKIP", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        TutorialButton("BACK", SanwolfPanelElevated, SanwolfTextPrimary, Modifier.weight(1f).testTag("back_tutorial_button")) {
+                            stepIndex = (index - 1).coerceAtLeast(0)
                         }
                     }
-
-                    if (currentStepIndex < steps.size - 1) {
-                        Button(
-                            onClick = { currentStepIndex++ },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = step.accentColor,
-                                contentColor = SanwolfBlack
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.testTag("next_tutorial_button")
-                        ) {
-                            Text("NEXT", fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    TutorialButton(
+                        "DON'T SHOW AGAIN",
+                        Color.Transparent,
+                        SanwolfGold,
+                        Modifier.weight(1.4f).border(1.dp, SanwolfGold, RoundedCornerShape(8.dp)).testTag("dont_show_again_button")
+                    ) {
+                        close(true)
+                    }
+                    if (isLast) {
+                        TutorialButton("FINISH", SanwolfGold, SanwolfBlack, Modifier.weight(1f).testTag("finish_tutorial_button")) {
+                            close(dontShowOnStartup)
                         }
                     } else {
-                        Button(
-                            onClick = { finishTutorial() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = SanwolfLime,
-                                contentColor = SanwolfBlack
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.testTag("finish_tutorial_button")
-                        ) {
-                            Text("GET STARTED", fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        TutorialButton("NEXT", SanwolfGold, SanwolfBlack, Modifier.weight(1f).testTag("next_tutorial_button")) {
+                            stepIndex = (index + 1).coerceAtMost(steps.size - 1)
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TutorialButton(label: String, background: Color, content: Color, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .heightIn(min = 38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(background)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = content,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
     }
 }
