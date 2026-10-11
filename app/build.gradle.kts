@@ -35,7 +35,10 @@ android {
     create("debugConfig") {
       val keystoreFile = file("${rootDir}/debug.keystore")
       if (keystoreFile.exists()) {
+        // Committed TEST key (PKCS12, see CHANGES.md): stable signature so test APKs
+        // install over each other. Public repo, so never use it for Play.
         storeFile = keystoreFile
+        storeType = "pkcs12"
         storePassword = "android"
         keyAlias = "androiddebugkey"
         keyPassword = "android"
