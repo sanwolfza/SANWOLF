@@ -111,6 +111,12 @@ fun SanwolfDawApp() {
 
     // Navigation & View States
     var viewMode by remember { mutableStateOf(DawViewMode.ARRANGER) }
+    // Editor drawer under the arranger. Which editor it shows follows the selected track; a clip tap
+    // can pin the other kind for that one track (e.g. a pattern clip on an instrument track).
+    var isEditorOpen by rememberSaveable { mutableStateOf(false) }
+    var isEditorMaximized by rememberSaveable { mutableStateOf(false) }
+    var editorOverrideKind by rememberSaveable { mutableStateOf<String?>(null) }
+    var editorOverrideTrackId by rememberSaveable { mutableStateOf<String?>(null) }
     val dawPrefs = remember { context.getSharedPreferences("sanwolf_daw_prefs", android.content.Context.MODE_PRIVATE) }
     var isMetronomeEnabled by remember { mutableStateOf(dawPrefs.getBoolean("metronome_enabled", false)) }
     var metronomeVolume by remember { mutableFloatStateOf(dawPrefs.getFloat("metronome_volume", 0.5f)) }
@@ -567,6 +573,11 @@ fun SanwolfDawApp() {
     }
 
     val selectedTrack: TrackData? = project.tracks.getOrNull(selectedTrackIndex) ?: project.tracks.firstOrNull()
+    val autoEditorKind = editorKindFor(selectedTrack)
+    val pinnedEditorKind = editorOverrideKind
+        ?.takeIf { selectedTrack != null && editorOverrideTrackId == selectedTrack.id && autoEditorKind != EditorKind.NONE }
+        ?.let { name -> runCatching { EditorKind.valueOf(name) }.getOrNull() }
+    val editorKind: EditorKind = pinnedEditorKind ?: autoEditorKind
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -690,310 +701,381 @@ fun SanwolfDawApp() {
                 ) {
                     Box(modifier = Modifier.weight(1f)) {
                         when (viewMode) {
-                    DawViewMode.ARRANGER -> {
-                        ArrangerView(
-                            project = project,
-                            currentBeat = audioEngine.currentBeat,
-                            selectedTrackIndex = selectedTrackIndex,
-                            onSelectTrack = { selectedTrackIndex = it },
-                            onEditInPianoRoll = { idx ->
-                                selectedTrackIndex = idx
-                                val tr = project.tracks.getOrNull(idx)
-                                if (tr != null && tr.type == com.sanwolf.daw.model.TrackType.DRUM_MACHINE) {
-                                    viewMode = DawViewMode.STEP_SEQUENCER
-                                } else {
-                                    viewMode = DawViewMode.PIANO_ROLL
+                    DawViewMode.ARRANGER, DawViewMode.STEP_SEQUENCER, DawViewMode.PIANO_ROLL -> {
+                        // Arranger on top; the editor for the selected track opens in a drawer under
+                        // it (drums -> steps, instruments -> piano roll). Closed, it takes no space.
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            if (!(isEditorOpen && isEditorMaximized)) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(if (isEditorOpen) 0.42f else 1f)
+                                ) {
+                                    ArrangerView(
+                                        project = project,
+                                        currentBeat = audioEngine.currentBeat,
+                                        selectedTrackIndex = selectedTrackIndex,
+                                        onSelectTrack = { selectedTrackIndex = it },
+                                        // "Edit notes" in the track menu: open the editor that fits the track
+                                        onEditInPianoRoll = { idx ->
+                                            if (idx in project.tracks.indices) {
+                                                selectedTrackIndex = idx
+                                                editorOverrideKind = null
+                                                isEditorOpen = true
+                                            }
+                                        },
+                                        onTrackVolumeChange = { idx, vol ->
+                                            project.tracks.getOrNull(idx)?.volume = vol
+                                        },
+                                        onTrackPanChange = { idx, pan ->
+                                            project.tracks.getOrNull(idx)?.pan = pan
+                                        },
+                                        onToggleMute = { idx ->
+                                            project.tracks.getOrNull(idx)?.let {
+                                                it.muted = !it.muted
+                                                audioEngine.updateStemMuteSolo(project)
+                                                val status = if (it.muted) "Muted" else "Unmuted"
+                                                Toast.makeText(context, "$status '${it.name}'", Toast.LENGTH_SHORT).show()
+                                            }
+                                            projectVersion++
+                                        },
+                                        onToggleSolo = { idx ->
+                                            project.tracks.getOrNull(idx)?.let {
+                                                it.solo = !it.solo
+                                                audioEngine.updateStemMuteSolo(project)
+                                                val status = if (it.solo) "Soloed" else "Unsoloed"
+                                                Toast.makeText(context, "$status '${it.name}'", Toast.LENGTH_SHORT).show()
+                                            }
+                                            projectVersion++
+                                        },
+                                        onAddTrack = { type ->
+                                            when (type) {
+                                                TrackType.AUDIO_IMPORT -> audioPickerLauncher.launch(arrayOf("audio/*"))
+                                                TrackType.SYNTH -> {
+                                                    val synthInstruments = listOf(
+                                                        Pair("Concert Grand Piano", "Keys & Piano"),
+                                                        Pair("Rhodes Mk1 Tines", "Keys & Piano"),
+                                                        Pair("808 Sub Boom", "Basses & 808s"),
+                                                        Pair("Violin Solo", "Strings & Orchestral"),
+                                                        Pair("Trumpet Solo", "Brass & Winds"),
+                                                        Pair("Moog Model D Bass", "Basses & 808s"),
+                                                        Pair("Cyber Lead", "Leads & Synths"),
+                                                        Pair("Warm Analog Pad", "Keys & Piano")
+                                                    )
+                                                    val chosen = synthInstruments[(project.tracks.size) % synthInstruments.size]
+                                                    project.tracks.add(
+                                                        TrackData(
+                                                            name = chosen.first,
+                                                            type = TrackType.SYNTH,
+                                                            colorHex = 0xFF00E5FF,
+                                                            synthPresetName = chosen.first,
+                                                            synthPresetCategory = chosen.second
+                                                        )
+                                                    )
+                                                }
+                                                TrackType.DRUM_MACHINE -> {
+                                                    val drumSounds = listOf("808 Sub Kick", "Snare Trap Crack", "Closed Hi-Hat", "Clean Hand Clap", "Djembe African Drum", "Congas & Bongos")
+                                                    val chosen = drumSounds[(project.tracks.size) % drumSounds.size]
+                                                    project.tracks.add(
+                                                        TrackData(
+                                                            name = chosen,
+                                                            type = TrackType.DRUM_MACHINE,
+                                                            colorHex = 0xFFFF9100,
+                                                            synthPresetName = chosen,
+                                                            synthPresetCategory = "Drum Kits"
+                                                        )
+                                                    )
+                                                }
+                                                TrackType.MODULAR_SYNTH -> {
+                                                    project.tracks.add(
+                                                        TrackData(name = "Modular Sub ${project.tracks.size + 1}", type = TrackType.MODULAR_SYNTH, colorHex = 0xFFD9A441)
+                                                    )
+                                                }
+                                                TrackType.RISER_TEXTURE -> {
+                                                    project.tracks.add(
+                                                        TrackData(name = "Atmosphere ${project.tracks.size + 1}", type = TrackType.RISER_TEXTURE, colorHex = 0xFF76FF03)
+                                                    )
+                                                }
+                                            }
+                                            projectVersion++
+                                        },
+                                        onDeleteTrack = { idx ->
+                                            if (project.tracks.size > 1 && idx in project.tracks.indices) {
+                                                project.tracks.removeAt(idx)
+                                                if (selectedTrackIndex >= project.tracks.size) {
+                                                    selectedTrackIndex = project.tracks.size - 1
+                                                }
+                                                projectVersion++
+                                            }
+                                        },
+                                        onTimelineScrub = { beat ->
+                                            audioEngine.seekToBeat(beat)
+                                        },
+                                        onSelectInstrumentForTrack = { trackIdx ->
+                                            showInstrumentSelectorForTrack = project.tracks.getOrNull(trackIdx)
+                                        },
+                                        onOpenInstrumentBrowser = {
+                                            showInstrumentBrowserForNewTrack = true
+                                        },
+                                        firebaseManager = firebaseManager,
+                                        onLoadProject = { loadedProj ->
+                                            project.tracks.clear()
+                                            project.tracks.addAll(loadedProj.tracks)
+                                            project.title = loadedProj.title
+                                            project.bpm = loadedProj.bpm
+                                            project.swing = loadedProj.swing
+                                            project.masterVolume = loadedProj.masterVolume
+                                            project.masteringConfig = loadedProj.masteringConfig
+                                            project.collaborationRoomId = loadedProj.collaborationRoomId
+                                            project.isCloudSynced = loadedProj.isCloudSynced
+                                            project.lastSavedTimestamp = loadedProj.lastSavedTimestamp
+                                            selectedTrackIndex = 0
+                                            audioEngine.stop()
+                                            audioEngine.currentProject = project
+                                            projectVersion++
+                                        },
+                                        onProjectSaved = {
+                                            project.isCloudSynced = true
+                                            projectVersion++
+                                        },
+                                        onMoveTrackUp = { idx ->
+                                            if (idx > 0) {
+                                                val item = project.tracks.removeAt(idx)
+                                                project.tracks.add(idx - 1, item)
+                                                selectedTrackIndex = idx - 1
+                                                projectVersion++
+                                            }
+                                        },
+                                        onMoveTrackDown = { idx ->
+                                            if (idx < project.tracks.size - 1) {
+                                                val item = project.tracks.removeAt(idx)
+                                                project.tracks.add(idx + 1, item)
+                                                selectedTrackIndex = idx + 1
+                                                projectVersion++
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize(),
+                                        // Tapping a notes clip opens the piano roll for that track directly
+                                        onOpenPianoRoll = { idx ->
+                                            project.tracks.getOrNull(idx)?.let { tr ->
+                                                selectedTrackIndex = idx
+                                                editorOverrideKind = EditorKind.PIANO_ROLL.name
+                                                editorOverrideTrackId = tr.id
+                                                isEditorOpen = true
+                                            }
+                                        },
+                                        // Tapping a pattern clip opens the step sequencer for that track
+                                        onOpenStepEditor = { idx ->
+                                            project.tracks.getOrNull(idx)?.let { tr ->
+                                                selectedTrackIndex = idx
+                                                editorOverrideKind = EditorKind.STEPS.name
+                                                editorOverrideTrackId = tr.id
+                                                isEditorOpen = true
+                                            }
+                                        },
+                                        editorToggleLabel = editorKind.label,
+                                        isEditorOpen = isEditorOpen,
+                                        onToggleEditor = {
+                                            isEditorOpen = !isEditorOpen
+                                            if (!isEditorOpen) isEditorMaximized = false
+                                        },
+                                        onClipsChanged = {
+                                            projectVersion++
+                                            // An audio clip may have moved: realign the stem players
+                                            audioEngine.resyncStems()
+                                        }
+                                    )
                                 }
-                            },
-                            onTrackVolumeChange = { idx, vol ->
-                                project.tracks.getOrNull(idx)?.volume = vol
-                            },
-                            onTrackPanChange = { idx, pan ->
-                                project.tracks.getOrNull(idx)?.pan = pan
-                            },
-                            onToggleMute = { idx ->
-                                project.tracks.getOrNull(idx)?.let {
-                                    it.muted = !it.muted
-                                    audioEngine.updateStemMuteSolo(project)
-                                    val status = if (it.muted) "Muted" else "Unmuted"
-                                    Toast.makeText(context, "$status '${it.name}'", Toast.LENGTH_SHORT).show()
-                                }
-                                projectVersion++
-                            },
-                            onToggleSolo = { idx ->
-                                project.tracks.getOrNull(idx)?.let {
-                                    it.solo = !it.solo
-                                    audioEngine.updateStemMuteSolo(project)
-                                    val status = if (it.solo) "Soloed" else "Unsoloed"
-                                    Toast.makeText(context, "$status '${it.name}'", Toast.LENGTH_SHORT).show()
-                                }
-                                projectVersion++
-                            },
-                            onAddTrack = { type ->
-                                when (type) {
-                                    TrackType.AUDIO_IMPORT -> audioPickerLauncher.launch(arrayOf("audio/*"))
-                                    TrackType.SYNTH -> {
-                                        val synthInstruments = listOf(
-                                            Pair("Concert Grand Piano", "Keys & Piano"),
-                                            Pair("Rhodes Mk1 Tines", "Keys & Piano"),
-                                            Pair("808 Sub Boom", "Basses & 808s"),
-                                            Pair("Violin Solo", "Strings & Orchestral"),
-                                            Pair("Trumpet Solo", "Brass & Winds"),
-                                            Pair("Moog Model D Bass", "Basses & 808s"),
-                                            Pair("Cyber Lead", "Leads & Synths"),
-                                            Pair("Warm Analog Pad", "Keys & Piano")
-                                        )
-                                        val chosen = synthInstruments[(project.tracks.size) % synthInstruments.size]
-                                        project.tracks.add(
-                                            TrackData(
-                                                name = chosen.first,
-                                                type = TrackType.SYNTH,
-                                                colorHex = 0xFF00E5FF,
-                                                synthPresetName = chosen.first,
-                                                synthPresetCategory = chosen.second
-                                            )
-                                        )
-                                    }
-                                    TrackType.DRUM_MACHINE -> {
-                                        val drumSounds = listOf("808 Sub Kick", "Snare Trap Crack", "Closed Hi-Hat", "Clean Hand Clap", "Djembe African Drum", "Congas & Bongos")
-                                        val chosen = drumSounds[(project.tracks.size) % drumSounds.size]
-                                        project.tracks.add(
-                                            TrackData(
-                                                name = chosen,
-                                                type = TrackType.DRUM_MACHINE,
-                                                colorHex = 0xFFFF9100,
-                                                synthPresetName = chosen,
-                                                synthPresetCategory = "Drum Kits"
-                                            )
-                                        )
-                                    }
-                                    TrackType.MODULAR_SYNTH -> {
-                                        project.tracks.add(
-                                            TrackData(name = "Modular Sub ${project.tracks.size + 1}", type = TrackType.MODULAR_SYNTH, colorHex = 0xFFD9A441)
-                                        )
-                                    }
-                                    TrackType.RISER_TEXTURE -> {
-                                        project.tracks.add(
-                                            TrackData(name = "Atmosphere ${project.tracks.size + 1}", type = TrackType.RISER_TEXTURE, colorHex = 0xFF76FF03)
-                                        )
-                                    }
-                                }
-                                projectVersion++
-                            },
-                            onDeleteTrack = { idx ->
-                                if (project.tracks.size > 1 && idx in project.tracks.indices) {
-                                    project.tracks.removeAt(idx)
-                                    if (selectedTrackIndex >= project.tracks.size) {
-                                        selectedTrackIndex = project.tracks.size - 1
-                                    }
-                                    projectVersion++
-                                }
-                            },
-                            onTimelineScrub = { beat ->
-                                audioEngine.seekToBeat(beat)
-                            },
-                            onSelectInstrumentForTrack = { trackIdx ->
-                                showInstrumentSelectorForTrack = project.tracks.getOrNull(trackIdx)
-                            },
-                            onOpenInstrumentBrowser = {
-                                showInstrumentBrowserForNewTrack = true
-                            },
-                            firebaseManager = firebaseManager,
-                            onLoadProject = { loadedProj ->
-                                project.tracks.clear()
-                                project.tracks.addAll(loadedProj.tracks)
-                                project.title = loadedProj.title
-                                project.bpm = loadedProj.bpm
-                                project.swing = loadedProj.swing
-                                project.masterVolume = loadedProj.masterVolume
-                                project.masteringConfig = loadedProj.masteringConfig
-                                project.collaborationRoomId = loadedProj.collaborationRoomId
-                                project.isCloudSynced = loadedProj.isCloudSynced
-                                project.lastSavedTimestamp = loadedProj.lastSavedTimestamp
-                                selectedTrackIndex = 0
-                                audioEngine.stop()
-                                audioEngine.currentProject = project
-                                projectVersion++
-                            },
-                            onProjectSaved = {
-                                project.isCloudSynced = true
-                                projectVersion++
-                            },
-                            onMoveTrackUp = { idx ->
-                                if (idx > 0) {
-                                    val item = project.tracks.removeAt(idx)
-                                    project.tracks.add(idx - 1, item)
-                                    selectedTrackIndex = idx - 1
-                                    projectVersion++
-                                }
-                            },
-                            onMoveTrackDown = { idx ->
-                                if (idx < project.tracks.size - 1) {
-                                    val item = project.tracks.removeAt(idx)
-                                    project.tracks.add(idx + 1, item)
-                                    selectedTrackIndex = idx + 1
-                                    projectVersion++
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize(),
-                            // Tapping a notes clip opens the piano roll for that track directly
-                            onOpenPianoRoll = { idx ->
-                                if (idx in project.tracks.indices) {
-                                    selectedTrackIndex = idx
-                                    viewMode = DawViewMode.PIANO_ROLL
-                                }
-                            },
-                            onClipsChanged = {
-                                projectVersion++
-                                // An audio clip may have moved: realign the stem players
-                                audioEngine.resyncStems()
                             }
-                        )
-                    }
-
-                    DawViewMode.STEP_SEQUENCER -> {
-                        StepSequencerView(
-                            project = project,
-                            currentStep = audioEngine.currentStep,
-                            isPlaying = audioEngine.isPlaying,
-                            onStepToggle = { tIdx, sIdx ->
-                                project.tracks.getOrNull(tIdx)?.let { tr ->
-                                    if (sIdx in tr.steps.indices) {
-                                        tr.steps[sIdx] = !tr.steps[sIdx]
-                                        if (tr.steps[sIdx]) {
-                                            if (tr.type == TrackType.DRUM_MACHINE) {
-                                                audioEngine.triggerDrumTrack(tr, tr.volume, tr.pan)
-                                            } else {
-                                                audioEngine.triggerTrackNote(tr, 60, 0.25f, tr.volume)
+                            if (isEditorOpen) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(if (isEditorMaximized) 1f else 0.58f)
+                                        .background(SanwolfBlack)
+                                ) {
+                                    BottomEditorHeader(
+                                        kind = editorKind,
+                                        trackName = selectedTrack?.name,
+                                        isMaximized = isEditorMaximized,
+                                        onToggleMaximize = { isEditorMaximized = !isEditorMaximized },
+                                        onClose = {
+                                            isEditorOpen = false
+                                            isEditorMaximized = false
+                                        }
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                    ) {
+                                        when (editorKind) {
+                                            EditorKind.STEPS -> {
+                                                StepSequencerView(
+                                                    project = project,
+                                                    currentStep = audioEngine.currentStep,
+                                                    isPlaying = audioEngine.isPlaying,
+                                                    onStepToggle = { tIdx, sIdx ->
+                                                        project.tracks.getOrNull(tIdx)?.let { tr ->
+                                                            if (sIdx in tr.steps.indices) {
+                                                                tr.steps[sIdx] = !tr.steps[sIdx]
+                                                                if (tr.steps[sIdx]) {
+                                                                    if (tr.type == TrackType.DRUM_MACHINE) {
+                                                                        audioEngine.triggerDrumTrack(tr, tr.volume, tr.pan)
+                                                                    } else {
+                                                                        audioEngine.triggerTrackNote(tr, 60, 0.25f, tr.volume)
+                                                                    }
+                                                                }
+                                                                // The array is mutated in place: bump the version so the grid redraws
+                                                                projectVersion++
+                                                            }
+                                                        }
+                                                    },
+                                                    onStepVelocityChange = { tIdx, sIdx, vel ->
+                                                        project.tracks.getOrNull(tIdx)?.let { tr ->
+                                                            if (sIdx in tr.stepVelocities.indices) tr.stepVelocities[sIdx] = vel
+                                                        }
+                                                        projectVersion++
+                                                    },
+                                                    onPolyStepCountChange = { tIdx, count ->
+                                                        project.tracks.getOrNull(tIdx)?.stepCount = count
+                                                        projectVersion++
+                                                    },
+                                                    onPreviewTrack = { tIdx ->
+                                                        project.tracks.getOrNull(tIdx)?.let { tr ->
+                                                            if (tr.type == TrackType.DRUM_MACHINE) {
+                                                                audioEngine.triggerDrumTrack(tr, tr.volume, tr.pan)
+                                                            } else {
+                                                                audioEngine.triggerTrackNote(tr, 60, 0.4f, tr.volume)
+                                                            }
+                                                        }
+                                                    },
+                                                    onApplyPresetPattern = { preset ->
+                                                        when (preset) {
+                                                            "Trap 808", "Trap 808 (32s)" -> {
+                                                                project.tracks.forEach { it.stepCount = 32 }
+                                                                project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
+                                                                    it.steps.fill(false)
+                                                                    it.steps[0] = true; it.steps[6] = true; it.steps[8] = true; it.steps[14] = true
+                                                                    it.steps[16] = true; it.steps[22] = true; it.steps[24] = true; it.steps[30] = true
+                                                                }
+                                                                project.tracks.getOrNull(1)?.let {
+                                                                    it.steps.fill(false)
+                                                                    it.steps[4] = true; it.steps[12] = true; it.steps[20] = true; it.steps[28] = true
+                                                                }
+                                                            }
+                                                            "Amapiano", "Amapiano (32s)" -> {
+                                                                project.tracks.forEach { it.stepCount = 32 }
+                                                                project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
+                                                                    it.steps.fill(false)
+                                                                    it.steps[0] = true; it.steps[3] = true; it.steps[6] = true; it.steps[8] = true
+                                                                    it.steps[11] = true; it.steps[14] = true; it.steps[16] = true; it.steps[22] = true
+                                                                    it.steps[24] = true; it.steps[30] = true
+                                                                }
+                                                            }
+                                                            "Polyrhythm 3:4", "Polyrhythm (24s)" -> {
+                                                                val drumTracks = project.tracks.filter { it.type == TrackType.DRUM_MACHINE }
+                                                                drumTracks.getOrNull(0)?.stepCount = 24
+                                                                drumTracks.getOrNull(1)?.stepCount = 18
+                                                                drumTracks.getOrNull(2)?.stepCount = 12
+                                                            }
+                                                            "Afrobeat", "Afrobeat (24s)" -> {
+                                                                project.tracks.forEach { it.stepCount = 24 }
+                                                                project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
+                                                                    it.steps.fill(false)
+                                                                    it.steps[0] = true; it.steps[4] = true; it.steps[6] = true; it.steps[10] = true
+                                                                    it.steps[12] = true; it.steps[16] = true; it.steps[18] = true; it.steps[22] = true
+                                                                }
+                                                            }
+                                                            "Techno", "Techno (32s)" -> {
+                                                                project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
+                                                                    it.stepCount = 32
+                                                                    it.steps.fill(false)
+                                                                    for (s in 0 until 32 step 4) it.steps[s] = true
+                                                                }
+                                                            }
+                                                            "Boom Bap", "Boom Bap (16s)" -> {
+                                                                project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
+                                                                    it.stepCount = 16
+                                                                    it.steps.fill(false)
+                                                                    it.steps[0] = true; it.steps[4] = true; it.steps[8] = true; it.steps[12] = true
+                                                                }
+                                                            }
+                                                        }
+                                                        projectVersion++
+                                                    },
+                                                    onSwingChange = { project.swing = it },
+                                                    onTriggerPad = { padName, velocity ->
+                                                        audioEngine.triggerDrumSound(padName, velocity)
+                                                    },
+                                                    onAddTrack = { type, name ->
+                                                        val color = when (type) {
+                                                            TrackType.DRUM_MACHINE -> if (name.contains("Kick")) 0xFFFF5722 else if (name.contains("Snare")) 0xFFFF2A6D else 0xFFFF9100
+                                                            else -> if (name.contains("Bass")) 0xFFFFAB00 else 0xFF00E5FF
+                                                        }
+                                                        project.tracks.add(
+                                                            TrackData(
+                                                                name = name,
+                                                                type = type,
+                                                                colorHex = color,
+                                                                synthPresetName = name,
+                                                                synthPresetCategory = if (type == TrackType.DRUM_MACHINE) "Drum Kits" else if (name.contains("Bass")) "Basses & 808s" else if (name.contains("Violin")) "Strings & Orchestral" else if (name.contains("Trumpet")) "Brass & Winds" else "Keys & Piano",
+                                                                stepCount = 32
+                                                            )
+                                                        )
+                                                        projectVersion++
+                                                    },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    revision = projectVersion,
+                                                    selectedTrackIndex = selectedTrackIndex,
+                                                    onSelectTrack = { selectedTrackIndex = it },
+                                                    // Drum tracks, plus the selected track when a pattern clip on it was opened
+                                                    showTrack = { t -> t.type == TrackType.DRUM_MACHINE || t.id == selectedTrack?.id }
+                                                )
+                                            }
+                                            EditorKind.PIANO_ROLL -> {
+                                                selectedTrack?.let { tr ->
+                                                    androidx.compose.runtime.key(tr.id) {
+                                                    PianoRollView(
+                                                        track = tr,
+                                                        currentBeat = audioEngine.currentBeat,
+                                                        isPlaying = audioEngine.isPlaying,
+                                                        onAddOrRemoveNote = { pitch, startBeat ->
+                                                            val existing = tr.notes.find { it.pitch == pitch && Math.abs(it.startBeat - startBeat) < 0.25 }
+                                                            if (existing != null) tr.notes.remove(existing)
+                                                            else tr.notes.add(com.sanwolf.daw.model.MidiNote(pitch = pitch, startBeat = startBeat, lengthBeats = 1.0))
+                                                            projectVersion++
+                                                        },
+                                                        onClearNotes = {
+                                                            tr.notes.clear()
+                                                            projectVersion++
+                                                        },
+                                                        onPreviewPitch = { pitch ->
+                                                            audioEngine.triggerMidiNote(pitch, tr)
+                                                        },
+                                                        onQuantizeNotes = { _ -> },
+                                                        onStampChord = { _ -> },
+                                                        projectVersion = projectVersion,
+                                                        bpm = project.bpm,
+                                                        initialSwing = project.swing,
+                                                        onSwingChange = { project.swing = it },
+                                                        onOpenInstrumentSelector = {
+                                                            showInstrumentSelectorForTrack = tr
+                                                        }
+                                                    )
+                                                    }
+                                                }
+                                            }
+                                            EditorKind.NONE -> {
+                                                BottomEditorHint(
+                                                    text = if (selectedTrack == null) "Add a track to start editing."
+                                                    else "Audio tracks have no note editor. Hold and drag the clip to move it; select an instrument or drum track to edit notes or steps."
+                                                )
                                             }
                                         }
                                     }
                                 }
-                            },
-                            onStepVelocityChange = { tIdx, sIdx, vel ->
-                                project.tracks.getOrNull(tIdx)?.let { tr ->
-                                    if (sIdx in tr.stepVelocities.indices) tr.stepVelocities[sIdx] = vel
-                                }
-                            },
-                            onPolyStepCountChange = { tIdx, count ->
-                                project.tracks.getOrNull(tIdx)?.stepCount = count
-                            },
-                            onPreviewTrack = { tIdx ->
-                                project.tracks.getOrNull(tIdx)?.let { tr ->
-                                    if (tr.type == TrackType.DRUM_MACHINE) {
-                                        audioEngine.triggerDrumTrack(tr, tr.volume, tr.pan)
-                                    } else {
-                                        audioEngine.triggerTrackNote(tr, 60, 0.4f, tr.volume)
-                                    }
-                                }
-                            },
-                            onApplyPresetPattern = { preset ->
-                                when (preset) {
-                                    "Trap 808", "Trap 808 (32s)" -> {
-                                        project.tracks.forEach { it.stepCount = 32 }
-                                        project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
-                                            it.steps.fill(false)
-                                            it.steps[0] = true; it.steps[6] = true; it.steps[8] = true; it.steps[14] = true
-                                            it.steps[16] = true; it.steps[22] = true; it.steps[24] = true; it.steps[30] = true
-                                        }
-                                        project.tracks.getOrNull(1)?.let {
-                                            it.steps.fill(false)
-                                            it.steps[4] = true; it.steps[12] = true; it.steps[20] = true; it.steps[28] = true
-                                        }
-                                    }
-                                    "Amapiano", "Amapiano (32s)" -> {
-                                        project.tracks.forEach { it.stepCount = 32 }
-                                        project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
-                                            it.steps.fill(false)
-                                            it.steps[0] = true; it.steps[3] = true; it.steps[6] = true; it.steps[8] = true
-                                            it.steps[11] = true; it.steps[14] = true; it.steps[16] = true; it.steps[22] = true
-                                            it.steps[24] = true; it.steps[30] = true
-                                        }
-                                    }
-                                    "Polyrhythm 3:4", "Polyrhythm (24s)" -> {
-                                        val drumTracks = project.tracks.filter { it.type == TrackType.DRUM_MACHINE }
-                                        drumTracks.getOrNull(0)?.stepCount = 24
-                                        drumTracks.getOrNull(1)?.stepCount = 18
-                                        drumTracks.getOrNull(2)?.stepCount = 12
-                                    }
-                                    "Afrobeat", "Afrobeat (24s)" -> {
-                                        project.tracks.forEach { it.stepCount = 24 }
-                                        project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
-                                            it.steps.fill(false)
-                                            it.steps[0] = true; it.steps[4] = true; it.steps[6] = true; it.steps[10] = true
-                                            it.steps[12] = true; it.steps[16] = true; it.steps[18] = true; it.steps[22] = true
-                                        }
-                                    }
-                                    "Techno", "Techno (32s)" -> {
-                                        project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
-                                            it.stepCount = 32
-                                            it.steps.fill(false)
-                                            for (s in 0 until 32 step 4) it.steps[s] = true
-                                        }
-                                    }
-                                    "Boom Bap", "Boom Bap (16s)" -> {
-                                        project.tracks.firstOrNull { it.type == TrackType.DRUM_MACHINE }?.let {
-                                            it.stepCount = 16
-                                            it.steps.fill(false)
-                                            it.steps[0] = true; it.steps[4] = true; it.steps[8] = true; it.steps[12] = true
-                                        }
-                                    }
-                                }
-                                projectVersion++
-                            },
-                            onSwingChange = { project.swing = it },
-                            onTriggerPad = { padName, velocity ->
-                                audioEngine.triggerDrumSound(padName, velocity)
-                            },
-                            onAddTrack = { type, name ->
-                                val color = when (type) {
-                                    TrackType.DRUM_MACHINE -> if (name.contains("Kick")) 0xFFFF5722 else if (name.contains("Snare")) 0xFFFF2A6D else 0xFFFF9100
-                                    else -> if (name.contains("Bass")) 0xFFFFAB00 else 0xFF00E5FF
-                                }
-                                project.tracks.add(
-                                    TrackData(
-                                        name = name,
-                                        type = type,
-                                        colorHex = color,
-                                        synthPresetName = name,
-                                        synthPresetCategory = if (type == TrackType.DRUM_MACHINE) "Drum Kits" else if (name.contains("Bass")) "Basses & 808s" else if (name.contains("Violin")) "Strings & Orchestral" else if (name.contains("Trumpet")) "Brass & Winds" else "Keys & Piano",
-                                        stepCount = 32
-                                    )
-                                )
-                                projectVersion++
                             }
-                        )
-                    }
-
-                    DawViewMode.PIANO_ROLL -> {
-                        selectedTrack?.let { tr ->
-                            PianoRollView(
-                                track = tr,
-                                currentBeat = audioEngine.currentBeat,
-                                isPlaying = audioEngine.isPlaying,
-                                onAddOrRemoveNote = { pitch, startBeat ->
-                                    val existing = tr.notes.find { it.pitch == pitch && Math.abs(it.startBeat - startBeat) < 0.25 }
-                                    if (existing != null) tr.notes.remove(existing)
-                                    else tr.notes.add(com.sanwolf.daw.model.MidiNote(pitch = pitch, startBeat = startBeat, lengthBeats = 1.0))
-                                    projectVersion++
-                                },
-                                onClearNotes = {
-                                    tr.notes.clear()
-                                    projectVersion++
-                                },
-                                onPreviewPitch = { pitch ->
-                                    audioEngine.triggerMidiNote(pitch, tr)
-                                },
-                                onQuantizeNotes = { _ -> },
-                                onStampChord = { _ -> },
-                                projectVersion = projectVersion,
-                                bpm = project.bpm,
-                                initialSwing = project.swing,
-                                onSwingChange = { project.swing = it },
-                                onOpenInstrumentSelector = {
-                                    showInstrumentSelectorForTrack = tr
-                                }
-                            )
                         }
                     }
 
@@ -1065,7 +1147,7 @@ fun SanwolfDawApp() {
                 onKeyTriggered = { pitch ->
                     // Live record / insert note into active track if in Piano Roll mode
                     selectedTrack?.let { tr ->
-                        if (viewMode == DawViewMode.PIANO_ROLL) {
+                        if (isEditorOpen && editorKind == EditorKind.PIANO_ROLL) {
                             val currentSnapBeat = (Math.round(audioEngine.currentBeat * 4.0) / 4.0)
                             val existingNote = tr.notes.find { it.pitch == pitch && Math.abs(it.startBeat - currentSnapBeat) < 0.25 }
                             if (existingNote == null) {

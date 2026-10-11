@@ -225,7 +225,13 @@ fun ArrangerView(
     /** Opens the piano roll for a track (tap on a notes clip). Defaults to [onEditInPianoRoll]. */
     onOpenPianoRoll: (Int) -> Unit = onEditInPianoRoll,
     /** Called after clips were moved/resized or a track was renamed (undo snapshot + redraw). */
-    onClipsChanged: () -> Unit = {}
+    onClipsChanged: () -> Unit = {},
+    /** Opens the step sequencer for a track (tap on a pattern clip). Defaults to [onEditInPianoRoll]. */
+    onOpenStepEditor: (Int) -> Unit = onEditInPianoRoll,
+    /** Label of the bottom-editor toggle ("Piano roll" / "Steps"); null hides the toggle. */
+    editorToggleLabel: String? = null,
+    isEditorOpen: Boolean = false,
+    onToggleEditor: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -477,6 +483,37 @@ fun ArrangerView(
                     Icon(Icons.Default.ZoomIn, contentDescription = "Zoom in", tint = SanwolfTextPrimary, modifier = Modifier.size(Dimens.icon))
                 }
 
+                // Bottom editor toggle: its label follows the selected track (Piano roll / Steps)
+                if (editorToggleLabel != null) {
+                    Row(
+                        modifier = Modifier
+                            .heightIn(min = 30.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isEditorOpen) SanwolfGold else SanwolfBlack)
+                            .border(1.dp, if (isEditorOpen) SanwolfGold else SanwolfPanelBorder, RoundedCornerShape(6.dp))
+                            .clickable { onToggleEditor() }
+                            .semantics { contentDescription = if (isEditorOpen) "Hide $editorToggleLabel" else "Show $editorToggleLabel" }
+                            .padding(horizontal = 8.dp)
+                            .testTag("toggle_bottom_editor"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (isEditorOpen) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                            contentDescription = null,
+                            tint = if (isEditorOpen) Color.Black else SanwolfGold,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = editorToggleLabel,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isEditorOpen) Color.Black else SanwolfGold,
+                            maxLines = 1
+                        )
+                    }
+                }
+
                 Text(
                     text = "Tap a clip to edit · hold to move · hold its right edge to resize · pinch to zoom",
                     fontSize = 11.sp,
@@ -682,7 +719,7 @@ fun ArrangerView(
                                                             onSelectTrack(index)
                                                             when (hit?.clip?.kind) {
                                                                 ClipKind.NOTES -> onOpenPianoRoll(index)
-                                                                ClipKind.PATTERN -> onEditInPianoRoll(index)
+                                                                ClipKind.PATTERN -> onOpenStepEditor(index)
                                                                 else -> Unit
                                                             }
                                                         }

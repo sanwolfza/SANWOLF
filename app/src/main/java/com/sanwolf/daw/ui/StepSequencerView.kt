@@ -76,7 +76,16 @@ fun StepSequencerView(
     onSwingChange: (Float) -> Unit,
     onTriggerPad: (name: String, velocity: Float) -> Unit,
     onAddTrack: ((TrackType, String) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * Bumped by the caller after every in-place edit (step toggles mutate the track's array, which
+     * Compose cannot observe). Rows and step buttons take it as a parameter so they redraw.
+     */
+    revision: Int = 0,
+    selectedTrackIndex: Int = -1,
+    onSelectTrack: (Int) -> Unit = {},
+    /** Which tracks get a row (the bottom editor shows drum tracks plus the selected track). */
+    showTrack: (TrackData) -> Boolean = { true }
 ) {
     var isPadMode by remember { mutableStateOf(false) }
     // 0: Page 1 (1-16), 1: Page 2 (17-32), 2: Page 3 (33-48), 3: Page 4 (49-64), -1: Full Horizontal Scroll
@@ -248,17 +257,24 @@ fun StepSequencerView(
                     .weight(1f)
             ) {
                 itemsIndexed(project.tracks) { trackIndex, track ->
-                    SequencerTrackRow(
-                        track = track,
-                        trackIndex = trackIndex,
-                        currentStep = currentStep,
-                        isPlaying = isPlaying,
-                        activePage = activePage,
-                        onStepToggle = { step -> onStepToggle(trackIndex, step) },
-                        onPolyStepCountChange = { count -> onPolyStepCountChange(trackIndex, count) },
-                        onPreviewSound = { onPreviewTrack(trackIndex) }
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    if (showTrack(track)) {
+                        SequencerTrackRow(
+                            track = track,
+                            trackIndex = trackIndex,
+                            currentStep = currentStep,
+                            isPlaying = isPlaying,
+                            activePage = activePage,
+                            revision = revision,
+                            isSelected = trackIndex == selectedTrackIndex,
+                            onStepToggle = { step -> onStepToggle(trackIndex, step) },
+                            onPolyStepCountChange = { count -> onPolyStepCountChange(trackIndex, count) },
+                            onPreviewSound = {
+                                onSelectTrack(trackIndex)
+                                onPreviewTrack(trackIndex)
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                 }
 
                 // Bottom Quick Track Adders
@@ -310,6 +326,8 @@ private fun SequencerTrackRow(
     currentStep: Int,
     isPlaying: Boolean,
     activePage: Int, // 0: 1-16, 1: 17-32, 2: 33-48, 3: 49-64, -1: Scroll All 64
+    revision: Int,
+    isSelected: Boolean,
     onStepToggle: (Int) -> Unit,
     onPolyStepCountChange: (Int) -> Unit,
     onPreviewSound: () -> Unit
@@ -322,8 +340,8 @@ private fun SequencerTrackRow(
             .fillMaxWidth()
             .height(42.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(SanwolfPanel)
-            .border(1.dp, SanwolfPanelBorder, RoundedCornerShape(6.dp))
+            .background(if (isSelected) SanwolfPanelElevated else SanwolfPanel)
+            .border(1.dp, if (isSelected) trackColor else SanwolfPanelBorder, RoundedCornerShape(6.dp))
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -426,6 +444,7 @@ private fun SequencerTrackRow(
                         trackColor = trackColor,
                         currentStep = currentStep,
                         isPlaying = isPlaying,
+                        revision = revision,
                         onStepToggle = onStepToggle,
                         modifier = Modifier
                             .width(32.dp)
@@ -449,6 +468,7 @@ private fun SequencerTrackRow(
                         trackColor = trackColor,
                         currentStep = currentStep,
                         isPlaying = isPlaying,
+                        revision = revision,
                         onStepToggle = onStepToggle,
                         modifier = Modifier
                             .weight(1f)
@@ -468,6 +488,7 @@ private fun StepButton(
     trackColor: Color,
     currentStep: Int,
     isPlaying: Boolean,
+    @Suppress("UNUSED_PARAMETER") revision: Int,
     onStepToggle: (Int) -> Unit,
     modifier: Modifier
 ) {
