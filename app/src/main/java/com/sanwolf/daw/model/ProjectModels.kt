@@ -299,15 +299,29 @@ data class TrackData(
 }
 
 /**
- * Effect modules that can sit in a rack slot. Every type is real DSP from the engine's master
- * chain (see audio/FxProcessors.kt), so each can run per track and on the master inserts.
+ * Effect modules that can sit in a rack slot. Every type is real DSP (audio/FxProcessors.kt and
+ * audio/FxModulesDsp.kt), so each can run per track and on the master inserts, live and in export.
  * Stored in [FxSlot.type] by [key] so unknown future keys never break loading.
+ * Categories, parameter specs and factory presets live in model/FxModules.kt.
+ * Never rename a [key]: saved projects refer to it.
  */
 enum class FxType(val key: String, val label: String, val shortLabel: String) {
     EQ("eq", "EQ (low / high shelf)", "EQ"),
     COMPRESSOR("comp", "Compressor (2:1 glue)", "Comp"),
     STEREO_WIDTH("width", "Stereo width", "Width"),
-    LIMITER("limiter", "Limiter (drive + ceiling)", "Limiter");
+    LIMITER("limiter", "Limiter (drive + ceiling)", "Limiter"),
+    // FX modules (branch feature/fx-modules). Parameters are stored in FxSlot.params.
+    PARAM_EQ("peq", "Parametric EQ (3 band)", "Param EQ"),
+    AUTO_FILTER("filter", "Auto filter (LP / HP / BP)", "Filter"),
+    GATE("gate", "Gate", "Gate"),
+    CHORUS("chorus", "Chorus", "Chorus"),
+    FLANGER("flanger", "Flanger", "Flanger"),
+    PHASER("phaser", "Phaser", "Phaser"),
+    TREMOLO("tremolo", "Tremolo / Auto-pan", "Tremolo"),
+    REVERB("reverb", "Reverb", "Reverb"),
+    DELAY("delay", "Delay (tempo sync, ping-pong)", "Delay"),
+    DISTORTION("dist", "Distortion / Overdrive", "Distortion"),
+    BITCRUSHER("crush", "Bitcrusher", "Bitcrusher");
 
     companion object {
         fun fromKey(key: String?): FxType? = values().firstOrNull { it.key == key }
@@ -346,7 +360,13 @@ data class FxSlot(
     var width: Float = 1f,
     // Limiter: drive into it and output ceiling
     var driveDb: Float = 0f,
-    var ceilingDb: Float = -1f
+    var ceilingDb: Float = -1f,
+    /**
+     * Parameters of the newer module types, by index (see FxModules.spec(type).params). Null or
+     * short = the module's defaults, so projects saved before a parameter existed still load.
+     * Replace the whole array (or write single floats) from the UI; the audio thread only reads.
+     */
+    var params: FloatArray? = null
 ) {
     val fxType: FxType? get() = FxType.fromKey(type)
 }

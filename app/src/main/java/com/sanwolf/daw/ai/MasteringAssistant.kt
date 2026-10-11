@@ -217,6 +217,7 @@ object MasteringAssistant {
                         FxType.COMPRESSOR -> put("thresholdDb", r1(slot.thresholdDb))
                         FxType.STEREO_WIDTH -> put("width", r2(slot.width))
                         FxType.LIMITER -> { put("driveDb", r1(slot.driveDb)); put("ceilingDb", r1(slot.ceilingDb)) }
+                        else -> {} // newer FX modules: listed (type, bypass) but not adjustable by the assistant
                     }
                 })
             }
@@ -544,6 +545,7 @@ object MasteringAssistant {
                     db("$name drive", old.driveDb, v.driveDb)
                     db("$name ceiling", old.ceilingDb, v.ceilingDb)
                 }
+                else -> {}
             }
             Unit
         }

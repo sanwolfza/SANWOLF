@@ -5,6 +5,7 @@ import com.sanwolf.daw.model.FxType
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -26,12 +27,41 @@ abstract class FxProcessor(val type: FxType) {
     /** Clears filter / envelope / delay state. */
     abstract fun reset()
 
+    /** Song tempo for tempo-synced modules; set by [configureFxChain] / the exporter before [configure]. */
+    @JvmField var bpm: Double = 120.0
+
+    /**
+     * Display meter for the rack UI, published once per block from [configure]: gain reduction in
+     * dB (<= 0) for dynamics modules, 0 otherwise. Read by the UI through [FxMeters].
+     */
+    @Volatile var meter: Float = 0f
+
+    /**
+     * True while the module still holds audible signal with no input (reverb tank, delay line,
+     * feedback ring). The engine keeps processing (and does not reset) until every tail is done.
+     */
+    open fun hasTail(): Boolean = false
+
+    /** Bypass state seen at the previous block; un-bypassing clears stale delay/reverb state. */
+    @JvmField internal var wasBypassed: Boolean = false
+
     companion object {
         fun create(type: FxType, sampleRate: Int = SanwolfAudioEngine.SAMPLE_RATE): FxProcessor = when (type) {
             FxType.EQ -> ShelfEqProcessor(sampleRate)
             FxType.COMPRESSOR -> GlueCompressorProcessor(sampleRate)
             FxType.STEREO_WIDTH -> StereoWidthProcessor()
             FxType.LIMITER -> LimiterProcessor(sampleRate)
+            FxType.PARAM_EQ -> ParamEqProcessor(sampleRate)
+            FxType.AUTO_FILTER -> AutoFilterProcessor(sampleRate)
+            FxType.GATE -> GateProcessor(sampleRate)
+            FxType.CHORUS -> ChorusProcessor(sampleRate)
+            FxType.FLANGER -> FlangerProcessor(sampleRate)
+            FxType.PHASER -> PhaserProcessor(sampleRate)
+            FxType.TREMOLO -> TremoloProcessor(sampleRate)
+            FxType.REVERB -> ReverbProcessor(sampleRate)
+            FxType.DELAY -> DelayProcessor(sampleRate)
+            FxType.DISTORTION -> DistortionProcessor(sampleRate)
+            FxType.BITCRUSHER -> BitcrusherProcessor(sampleRate)
         }
 
         /** Null for a slot whose type this build doesn't know (it is then skipped). */
@@ -85,8 +115,11 @@ class GlueCompressorProcessor(sampleRate: Int) : FxProcessor(FxType.COMPRESSOR) 
     private var makeup = 1f
     private var cachedThresh = Float.NaN
     private var env = 0f
+    private var minGain = 1f
 
     override fun configure(slot: FxSlot) {
+        meter = if (minGain < 0.9999f) (20f * log10(minGain.coerceAtLeast(1e-4f))) else 0f
+        minGain = 1f
         val t = slot.thresholdDb.coerceIn(-40f, 0f)
         if (t != cachedThresh) {
             cachedThresh = t
@@ -104,12 +137,13 @@ class GlueCompressorProcessor(sampleRate: Int) : FxProcessor(FxType.COMPRESSOR) 
         val coeff = if (peak > env) attack else release
         env = peak + coeff * (env - peak)
         val g = if (env > threshold) sqrt(threshold / env) else 1f
+        if (g < minGain) minGain = g
         val total = g * makeup
         out[0] = inL * total
         out[1] = inR * total
     }
 
-    override fun reset() { env = 0f }
+    override fun reset() { env = 0f; minGain = 1f }
 }
 
 /** Mid/side width: 0 = mono, 1 = unchanged, 2 = double side. */
@@ -176,9 +210,51 @@ fun runFxChain(chain: Array<FxUnit>, io: FloatArray, tmp: FloatArray) {
     }
 }
 
-/** Configures every unit of a chain (once per block). */
-fun configureFxChain(chain: Array<FxUnit>) {
-    for (u in chain) u.processor.configure(u.slot)
+/**
+ * Configures every unit of a chain (once per block) with the song tempo. A module that was
+ * bypassed and is switched back on starts from clean state (no stale echo / reverb burst).
+ */
+fun configureFxChain(chain: Array<FxUnit>, bpm: Double = 120.0) {
+    for (u in chain) {
+        val p = u.processor
+        if (u.slot.bypassed) {
+            p.wasBypassed = true
+            continue
+        }
+        if (p.wasBypassed) {
+            p.wasBypassed = false
+            p.reset()
+        }
+        p.bpm = bpm
+        p.configure(u.slot)
+    }
+}
+
+/** True while any active module of the plan still has a reverb / delay / feedback tail. */
+fun fxPlanHasTail(plan: FxRackPlan): Boolean {
+    for (chain in plan.trackChains) for (u in chain) if (!u.slot.bypassed && u.processor.hasTail()) return true
+    for (u in plan.master) if (!u.slot.bypassed && u.processor.hasTail()) return true
+    return false
+}
+
+/**
+ * Live processors by slot id, so the rack UI can read meters (gain reduction) without a
+ * reference to the engine. Replaced whole by the engine on every rack rebuild (UI thread).
+ */
+object FxMeters {
+    @Volatile private var map: Map<String, FxProcessor> = emptyMap()
+
+    /** Song tempo at the last rebuild (UI: delay tap spacing). */
+    @Volatile var songBpm: Int = 120
+        private set
+
+    fun publish(processors: Map<String, FxProcessor>, bpm: Int = songBpm) {
+        map = HashMap(processors)
+        songBpm = bpm
+    }
+
+    /** Latest meter value for a slot (0 when the slot is not live). */
+    fun read(slotId: String): Float = map[slotId]?.meter ?: 0f
 }
 
 /**

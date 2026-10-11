@@ -4,13 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -33,26 +35,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanwolf.daw.model.FX_RACK_SLOTS
 import com.sanwolf.daw.model.FxSlot
+import com.sanwolf.daw.model.FxModules
 import com.sanwolf.daw.model.FxType
 import com.sanwolf.daw.ui.theme.*
 
-/** A new slot of [type] with sensible starting values. */
-fun defaultFxSlot(type: FxType): FxSlot = when (type) {
-    FxType.EQ -> FxSlot(type = type.key, lowGainDb = 0f, highGainDb = 0f)
-    FxType.COMPRESSOR -> FxSlot(type = type.key, thresholdDb = -18f)
-    FxType.STEREO_WIDTH -> FxSlot(type = type.key, width = 1f)
-    FxType.LIMITER -> FxSlot(type = type.key, driveDb = 0f, ceilingDb = -1f)
-}
+/** A new slot of [type] at its module defaults (see [FxModules.newSlot]). */
+fun defaultFxSlot(type: FxType): FxSlot = FxModules.newSlot(type)
 
 /**
- * FL Studio Mobile style insert rack: ordered slots (max [FX_RACK_SLOTS]). Each slot can be
- * bypassed, moved up/down, removed, and tapped to show its controls inline.
+ * FL Studio Mobile style insert rack: ordered slots (max [FX_RACK_SLOTS]). Each slot shows its
+ * module name and a bypass LED, can be moved up/down or removed, and expands into a dark module
+ * panel with rotary knobs, presets and a small visualisation ([FxModulePanel]).
  *
  * [slots] is read for display; [ensureSlots] returns the live list (creating it on first add)
  * so merely viewing an old project's empty rack never changes the project.
  * [onStructureChanged] after add / remove / reorder (the engine rebuilds its routing);
- * [onParamsCommitted] after a slider release or bypass toggle (one undo entry). Slider drags
- * write the slot fields directly; the audio thread reads them every block.
+ * [onParamsCommitted] after a knob release, double-tap reset, preset, switch or bypass toggle
+ * (one undo entry each). Knob drags write the slot directly; the audio thread reads it every block.
  */
 @Composable
 fun FxRackView(
@@ -69,7 +68,7 @@ fun FxRackView(
 ) {
     // Slots are plain objects edited in place: bump this to redraw after an edit
     var tick by remember { mutableIntStateOf(0) }
-    @Suppress("UNUSED_VARIABLE") val redraw = tick + revision
+    val rev = tick + revision
     var expandedId by remember { mutableStateOf<String?>(null) }
     var showAddMenu by remember { mutableStateOf(false) }
     val list = slots.toList()
@@ -89,7 +88,7 @@ fun FxRackView(
                 title.uppercase(),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = SanwolfTextMuted,
+                color = SanwolfGold,
                 letterSpacing = 0.8.sp,
                 modifier = Modifier.weight(1f)
             )
@@ -106,6 +105,7 @@ fun FxRackView(
                 FxSlotRow(
                     index = index,
                     slot = slot,
+                    revision = rev,
                     isFirst = index == 0,
                     isLast = index == list.lastIndex,
                     expanded = expandedId == slot.id,
@@ -132,7 +132,10 @@ fun FxRackView(
                         onStructureChanged()
                     },
                     onParamChange = { tick++ },
-                    onParamDone = onParamsCommitted
+                    onParamDone = {
+                        tick++
+                        onParamsCommitted()
+                    }
                 )
             }
         }
@@ -145,33 +148,44 @@ fun FxRackView(
                         .fillMaxWidth()
                         .heightIn(min = 30.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .border(0.5.dp, SanwolfPanelBorder, RoundedCornerShape(4.dp))
+                        .border(0.5.dp, SanwolfGoldDim, RoundedCornerShape(4.dp))
                         .clickable { showAddMenu = true }
                         .semantics { contentDescription = "Add a module to slot ${list.size + 1}" }
                         .padding(horizontal = 6.dp)
                         .testTag("fx_rack_add")
                 ) {
                     Text("${list.size + 1}", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = SanwolfTextMuted, modifier = Modifier.width(14.dp))
-                    Icon(Icons.Default.Add, contentDescription = null, tint = SanwolfCyan, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Add, contentDescription = null, tint = SanwolfGold, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Add module", fontSize = 11.sp, color = SanwolfCyan, fontWeight = FontWeight.Bold)
+                    Text("Add module", fontSize = 11.sp, color = SanwolfGold, fontWeight = FontWeight.Bold)
                 }
                 DropdownMenu(expanded = showAddMenu, onDismissRequest = { showAddMenu = false }) {
-                    FxType.values().forEach { type ->
-                        DropdownMenuItem(
-                            text = { Text(type.label, fontSize = 13.sp) },
-                            onClick = {
-                                showAddMenu = false
-                                val live = ensureSlots()
-                                if (live.size < FX_RACK_SLOTS) {
-                                    val slot = defaultFxSlot(type)
-                                    live.add(slot)
-                                    expandedId = slot.id
-                                    tick++
-                                    onStructureChanged()
-                                }
-                            }
+                    FxModules.byCategory().forEach { (category, specs) ->
+                        // Category header (not selectable)
+                        Text(
+                            category.label.uppercase(),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SanwolfGold,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 2.dp)
                         )
+                        specs.forEach { spec ->
+                            DropdownMenuItem(
+                                text = { Text(spec.type.label, fontSize = 13.sp) },
+                                onClick = {
+                                    showAddMenu = false
+                                    val live = ensureSlots()
+                                    if (live.size < FX_RACK_SLOTS) {
+                                        val slot = FxModules.newSlot(spec.type)
+                                        live.add(slot)
+                                        expandedId = slot.id
+                                        tick++
+                                        onStructureChanged()
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -187,6 +201,7 @@ fun FxRackView(
 private fun FxSlotRow(
     index: Int,
     slot: FxSlot,
+    revision: Int,
     isFirst: Boolean,
     isLast: Boolean,
     expanded: Boolean,
@@ -197,96 +212,106 @@ private fun FxSlotRow(
     onParamChange: () -> Unit,
     onParamDone: () -> Unit
 ) {
+    @Suppress("UNUSED_VARIABLE") val r = revision
     val type = slot.fxType
+    val spec = type?.let { FxModules.spec(it) }
     val active = !slot.bypassed && type != null
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
             .background(SanwolfBlack)
-            .border(0.5.dp, if (active) SanwolfCyan.copy(alpha = 0.45f) else SanwolfPanelBorder, RoundedCornerShape(4.dp))
+            .border(
+                0.5.dp,
+                if (expanded && active) SanwolfGold.copy(alpha = 0.7f) else if (active) SanwolfGoldDim.copy(alpha = 0.6f) else SanwolfPanelBorder,
+                RoundedCornerShape(4.dp)
+            )
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(30.dp)
-                .padding(start = 6.dp)
+                .padding(start = 4.dp)
         ) {
-            Text("${index + 1}", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = SanwolfTextMuted, modifier = Modifier.width(14.dp))
+            Text("${index + 1}", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = SanwolfTextMuted, modifier = Modifier.width(12.dp))
+            // Bypass LED: lit gold = on, dark = bypassed
             Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(if (active) SanwolfLime else SanwolfTextMuted)
-            )
-            Spacer(Modifier.width(5.dp))
-            Text(
-                text = type?.shortLabel ?: "Unknown (${slot.type})",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (active) SanwolfTextPrimary else SanwolfTextMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                    .size(width = 24.dp, height = 30.dp)
+                    .clickable(enabled = type != null, onClick = onToggleBypass)
+                    .semantics {
+                        contentDescription = if (slot.bypassed) "Turn on ${type?.shortLabel ?: "module"}" else "Bypass ${type?.shortLabel ?: "module"}"
+                    }
+            ) {
+                if (active) {
+                    Box(Modifier.size(13.dp).clip(CircleShape).background(SanwolfOrange.copy(alpha = 0.25f)))
+                }
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (active) SanwolfGold else Color(0xFF2A2B30))
+                        .border(0.5.dp, if (active) SanwolfOrange else SanwolfTextMuted, CircleShape)
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .weight(1f)
+                    .fillMaxHeight()
                     .clickable(onClick = onToggleExpand)
                     .semantics { contentDescription = "${type?.label ?: slot.type}. Tap to ${if (expanded) "hide" else "show"} controls." }
-                    .padding(vertical = 6.dp)
-            )
-            SlotIcon(
-                Icons.Default.PowerSettingsNew,
-                if (slot.bypassed) "Turn on ${type?.shortLabel ?: "module"}" else "Bypass ${type?.shortLabel ?: "module"}",
-                tint = if (slot.bypassed) SanwolfTextMuted else SanwolfLime,
-                onClick = onToggleBypass
-            )
-            SlotIcon(Icons.Default.KeyboardArrowUp, "Move up", enabled = !isFirst, onClick = { onMove(-1) })
-            SlotIcon(Icons.Default.KeyboardArrowDown, "Move down", enabled = !isLast, onClick = { onMove(1) })
+            ) {
+                Text(
+                    text = type?.shortLabel ?: "Unknown (${slot.type})",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (active) SanwolfTextPrimary else SanwolfTextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (spec != null) {
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        FxModules.matchingPreset(slot, spec) ?: spec.category.label,
+                        fontSize = 9.sp,
+                        color = if (active) SanwolfGoldDim else SanwolfTextMuted.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = if (active) SanwolfGold else SanwolfTextMuted,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(2.dp))
+            }
+            SlotIcon(Icons.Default.ArrowUpward, "Move up", enabled = !isFirst, onClick = { onMove(-1) })
+            SlotIcon(Icons.Default.ArrowDownward, "Move down", enabled = !isLast, onClick = { onMove(1) })
             SlotIcon(Icons.Default.Close, "Remove", tint = SanwolfMagenta, onClick = onRemove)
         }
-        if (expanded && type != null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, end = 8.dp, bottom = 6.dp)
-            ) {
-                FxSlotControls(type, slot, enabled = !slot.bypassed, onChange = onParamChange, onDone = onParamDone)
+        if (expanded && type != null && spec != null) {
+            Box(modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp)) {
+                FxModulePanel(
+                    slot = slot,
+                    spec = spec,
+                    revision = revision,
+                    enabled = !slot.bypassed,
+                    onChange = onParamChange,
+                    onCommit = onParamDone
+                )
             }
         }
     }
 }
 
-@Composable
-private fun FxSlotControls(type: FxType, slot: FxSlot, enabled: Boolean, onChange: () -> Unit, onDone: () -> Unit) {
-    when (type) {
-        FxType.EQ -> {
-            RackSlider("Low shelf 120 Hz", slot.lowGainDb, -12f..12f, signedDb(slot.lowGainDb), SanwolfOrange, enabled,
-                { slot.lowGainDb = it; onChange() }, onDone)
-            RackSlider("High shelf 6 kHz", slot.highGainDb, -12f..12f, signedDb(slot.highGainDb), SanwolfCyan, enabled,
-                { slot.highGainDb = it; onChange() }, onDone)
-        }
-        FxType.COMPRESSOR -> {
-            val t = slot.thresholdDb
-            RackSlider("Threshold", t, -40f..0f, if (t >= -0.5f) "Off" else "%.1f dB".format(t), SanwolfGold, enabled,
-                { slot.thresholdDb = it; onChange() }, onDone)
-            Text("2:1, 10 ms attack, 150 ms release, auto make-up.", fontSize = 10.sp, color = SanwolfTextMuted)
-        }
-        FxType.STEREO_WIDTH -> {
-            RackSlider("Width", slot.width, 0f..2f, "${(slot.width * 100).toInt()}%", SanwolfPurple, enabled,
-                { slot.width = it; onChange() }, onDone)
-            Text("0% mono, 100% unchanged, 200% extra wide.", fontSize = 10.sp, color = SanwolfTextMuted)
-        }
-        FxType.LIMITER -> {
-            RackSlider("Drive", slot.driveDb, 0f..12f, signedDb(slot.driveDb), SanwolfMagenta, enabled,
-                { slot.driveDb = it; onChange() }, onDone)
-            RackSlider("Ceiling", slot.ceilingDb, -6f..0f, "%.1f dB".format(slot.ceilingDb), SanwolfLime, enabled,
-                { slot.ceilingDb = it; onChange() }, onDone)
-            Text("5 ms look-ahead (adds 5 ms latency to this channel).", fontSize = 10.sp, color = SanwolfTextMuted)
-        }
-    }
-}
-
-private fun signedDb(v: Float): String = (if (v > 0.05f) "+" else "") + "%.1f dB".format(v)
 
 @Composable
 private fun SlotIcon(
