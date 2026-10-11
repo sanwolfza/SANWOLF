@@ -14,6 +14,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.sanwolf.daw.ui.SanwolfDawApp
+import com.sanwolf.daw.ui.SanwolfSplashGate
 import com.sanwolf.daw.ui.theme.LocalUiSizeState
 import com.sanwolf.daw.ui.theme.MyApplicationTheme
 import com.sanwolf.daw.ui.theme.ProvideUiScale
@@ -50,7 +51,8 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(LocalUiSizeState provides uiSizeState) {
                 ProvideUiScale(scale = uiSizeState.size.scale) {
                     MyApplicationTheme {
-                        SanwolfDawApp()
+                        // Branded loading screen on cold start, then the DAW (ui/SplashScreens.kt)
+                        SanwolfSplashGate { SanwolfDawApp() }
                     }
                 }
             }
