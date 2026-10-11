@@ -79,6 +79,21 @@ val THIRD_PARTY_SOUND_SOURCES = listOf(
     )
 )
 
+/** Open-source software libraries bundled in the app whose licence asks for a notice. */
+data class SoftwareLicence(val name: String, val author: String, val licence: String, val url: String, val notes: String)
+
+val SOFTWARE_LICENCES = listOf(
+    SoftwareLicence(
+        name = "jump3r 1.0.5 (de.sciss:jump3r) - Java port of LAME",
+        author = "The LAME project, Ken Händel, Vadym Vikulin, Hanns Holger Rutz",
+        licence = "GNU LGPL v2.1 or later",
+        url = "https://www.gnu.org/licenses/lgpl-2.1.txt",
+        notes = "Used for MP3 export. Included unmodified as a separate library; source: " +
+            "https://git.iem.at/sciss/jump3r (also on Maven Central with sources). " +
+            "You may replace it with a modified version under the terms of the LGPL."
+    )
+)
+
 /** Settings > About > Sound licences: every source of the bundled sounds and its licence. */
 @Composable
 fun SoundLicencesDialog(onDismiss: () -> Unit) {
@@ -161,6 +176,16 @@ fun SoundLicencesDialog(onDismiss: () -> Unit) {
                             src.notes
                         ),
                         url = src.url,
+                        onOpenUrl = { u -> openUrl(u) }
+                    )
+                }
+
+                item(key = "hdr_software") { SectionTitle("SOFTWARE LIBRARIES") }
+                items(SOFTWARE_LICENCES, key = { "sw_${it.name}" }) { lib ->
+                    LicenceCard(
+                        title = lib.name,
+                        lines = listOf("Licence: ${lib.licence}", "Authors: ${lib.author}", lib.notes),
+                        url = lib.url,
                         onOpenUrl = { u -> openUrl(u) }
                     )
                 }

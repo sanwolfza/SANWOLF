@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -28,10 +30,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,6 +55,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.sanwolf.daw.audio.MidiExporter
 import com.sanwolf.daw.audio.WavExporter
+import com.sanwolf.daw.export.AudioExport
+import com.sanwolf.daw.export.ExportAudioFormat
+import com.sanwolf.daw.export.ExportTags
 import com.sanwolf.daw.model.ProjectData
 import com.sanwolf.daw.ui.theme.SanwolfBlack
 import com.sanwolf.daw.ui.theme.SanwolfCyan
@@ -86,20 +94,44 @@ fun ExportDialog(
     val scope = rememberCoroutineScope()
 
     var format by remember { mutableStateOf(ExportFormat.WAV) }
+    var audioFormat by remember { mutableStateOf(ExportAudioFormat.WAV_24) }
+    var availableAudio by remember { mutableStateOf(listOf(ExportAudioFormat.WAV_24, ExportAudioFormat.WAV_16)) }
     var midiScope by remember { mutableStateOf(MidiScope.FULL_PROJECT) }
-    var barCount by remember { mutableStateOf(4) }
+    var barCount by remember { mutableStateOf(16) }
     var isRendering by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
     var exportedFile by remember { mutableStateOf<File?>(null) }
+    var exportedMime by remember { mutableStateOf("audio/wav") }
     var statusText by remember { mutableStateOf<String?>(null) }
 
+    // MediaCodecList / encoder probing touches the codec service: do it off the main thread
+    LaunchedEffect(Unit) {
+        availableAudio = withContext(Dispatchers.IO) { runCatching { AudioExport.availableFormats() }.getOrDefault(availableAudio) }
+        if (audioFormat !in availableAudio) audioFormat = ExportAudioFormat.WAV_24
+    }
+
+    fun openShare(file: File, mime: String) {
+        runCatching {
+            val intent = if (format == ExportFormat.MIDI) {
+                MidiExporter.createShareIntent(context, file, "Share SANWOLF MIDI: ${file.name}")
+            } else {
+                AudioExport.shareIntent(context, file, mime)
+            }
+            context.startActivity(Intent.createChooser(intent, "Share ${file.name}"))
+        }.onFailure { err ->
+            android.util.Log.e("ExportDialog", "Share sheet failed", err)
+            android.widget.Toast.makeText(context, "Couldn't open the share sheet", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     ScaledDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isRendering) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.75f)
-                .fillMaxHeight(0.80f)
+                .fillMaxHeight(0.88f)
                 .clip(RoundedCornerShape(12.dp))
                 .border(1.5.dp, SanwolfGold, RoundedCornerShape(12.dp)),
             color = SanwolfPanel
@@ -120,142 +152,153 @@ fun ExportDialog(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "EXPORT DAW PROJECT",
+                                text = "EXPORT SONG",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Black,
                                 color = SanwolfGold,
                                 letterSpacing = 0.8.sp
                             )
                             Text(
-                                text = "Standard WAV 44.1kHz / 16-bit PCM • SMF Standard MIDI (.mid)",
+                                text = "Saved to Music/SANWOLF • share anywhere • WAV / FLAC / AAC / MP3 / MIDI",
                                 fontSize = 10.sp,
                                 color = SanwolfTextSecondary
                             )
                         }
                     }
 
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = { if (!isRendering) onDismiss() }) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = SanwolfTextPrimary)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Format Selector (WAV vs MIDI)
-                Text("EXPORT FORMAT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SanwolfTextSecondary)
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    ExportFormatCard(
-                        title = "Lossless Master WAV",
-                        subtitle = "16-Bit • 44.1kHz • Stereo PCM",
-                        isSelected = format == ExportFormat.WAV,
-                        accentColor = SanwolfGold,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        format = ExportFormat.WAV
-                    }
-
-                    ExportFormatCard(
-                        title = "Standard MIDI (.mid)",
-                        subtitle = "Type 1 SMF • Piano Roll & Drums",
-                        isSelected = format == ExportFormat.MIDI,
-                        accentColor = SanwolfCyan,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        format = ExportFormat.MIDI
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                val activeTrack = selectedTrack ?: project.tracks.firstOrNull()
-
-                if (format == ExportFormat.WAV) {
-                    // Length selector for audio render
-                    Text("RENDER RANGE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SanwolfTextSecondary)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(2, 4, 8, 16).forEach { bars ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (barCount == bars) SanwolfGold else SanwolfPanelElevated)
-                                    .border(1.dp, if (barCount == bars) SanwolfGold else SanwolfPanelBorder, RoundedCornerShape(6.dp))
-                                    .clickable { barCount = bars }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = "$bars Bars",
-                                    fontSize = 11.sp,
-                                    fontWeight = if (barCount == bars) FontWeight.Black else FontWeight.Medium,
-                                    color = if (barCount == bars) Color.Black else SanwolfTextPrimary
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    // Scope selector for MIDI export
-                    Text("MIDI EXPORT SCOPE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SanwolfTextSecondary)
-                    Spacer(modifier = Modifier.height(6.dp))
+                    // Audio vs MIDI
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (midiScope == MidiScope.FULL_PROJECT) SanwolfCyan.copy(alpha = 0.25f) else SanwolfPanelElevated)
-                                .border(1.dp, if (midiScope == MidiScope.FULL_PROJECT) SanwolfCyan else SanwolfPanelBorder, RoundedCornerShape(6.dp))
-                                .clickable { midiScope = MidiScope.FULL_PROJECT }
-                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                        ExportFormatCard(
+                            title = "Audio mixdown",
+                            subtitle = "WAV • FLAC • AAC • MP3 • 44.1 kHz stereo",
+                            isSelected = format == ExportFormat.WAV,
+                            accentColor = SanwolfGold,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Column {
-                                Text(
-                                    text = "FULL PROJECT",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = if (midiScope == MidiScope.FULL_PROJECT) SanwolfCyan else SanwolfTextPrimary
-                                )
-                                Text(
-                                    text = "${project.tracks.size} Multi-Track SMF",
-                                    fontSize = 9.sp,
-                                    color = SanwolfTextMuted
-                                )
+                            format = ExportFormat.WAV
+                            exportedFile = null
+                        }
+
+                        ExportFormatCard(
+                            title = "Standard MIDI (.mid)",
+                            subtitle = "Type 1 SMF • Piano Roll & Drums",
+                            isSelected = format == ExportFormat.MIDI,
+                            accentColor = SanwolfCyan,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            format = ExportFormat.MIDI
+                            exportedFile = null
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val activeTrack = selectedTrack ?: project.tracks.firstOrNull()
+
+                    if (format == ExportFormat.WAV) {
+                        // Quick presets
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ExportChip("Distributor master · WAV 24-bit", audioFormat == ExportAudioFormat.WAV_24, SanwolfGold) {
+                                audioFormat = ExportAudioFormat.WAV_24
+                            }
+                            if (ExportAudioFormat.MP3_320 in availableAudio) {
+                                ExportChip("Quick share · MP3 320", audioFormat == ExportAudioFormat.MP3_320, SanwolfCyan) {
+                                    audioFormat = ExportAudioFormat.MP3_320
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("FORMAT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SanwolfTextSecondary)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        // Two columns of format cards
+                        availableAudio.chunked(2).forEach { pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                pair.forEach { f ->
+                                    ExportFormatCard(
+                                        title = f.label,
+                                        subtitle = f.detail,
+                                        isSelected = audioFormat == f,
+                                        accentColor = if (f.isLossless) SanwolfGold else SanwolfCyan,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        audioFormat = f
+                                        exportedFile = null
+                                    }
+                                }
+                                if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
                             }
                         }
 
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (midiScope == MidiScope.CURRENT_SEQUENCE) SanwolfGold.copy(alpha = 0.25f) else SanwolfPanelElevated)
-                                .border(1.dp, if (midiScope == MidiScope.CURRENT_SEQUENCE) SanwolfGold else SanwolfPanelBorder, RoundedCornerShape(6.dp))
-                                .clickable { midiScope = MidiScope.CURRENT_SEQUENCE }
-                                .padding(horizontal = 10.dp, vertical = 8.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    text = "CURRENT SEQUENCE",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = if (midiScope == MidiScope.CURRENT_SEQUENCE) SanwolfGold else SanwolfTextPrimary
-                                )
-                                Text(
-                                    text = "${activeTrack?.name ?: "Piano Roll"} (${activeTrack?.notes?.size ?: 0} notes)",
-                                    fontSize = 9.sp,
-                                    color = SanwolfTextMuted
-                                )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("LENGTH", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SanwolfTextSecondary)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(4, 8, 16, 32, 64).forEach { bars ->
+                                ExportChip("$bars bars", barCount == bars, SanwolfGold) { barCount = bars }
                             }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Tags: \"${project.title}\" by ${project.artist.ifBlank { "SANWOLF" }} (set the artist in Song info).",
+                            fontSize = 10.sp,
+                            color = SanwolfTextMuted
+                        )
+                    } else {
+                        // Scope selector for MIDI export
+                        Text("MIDI EXPORT SCOPE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = SanwolfTextSecondary)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ExportFormatCard(
+                                title = "FULL PROJECT",
+                                subtitle = "${project.tracks.size} Multi-Track SMF",
+                                isSelected = midiScope == MidiScope.FULL_PROJECT,
+                                accentColor = SanwolfCyan,
+                                modifier = Modifier.weight(1f)
+                            ) { midiScope = MidiScope.FULL_PROJECT }
+                            ExportFormatCard(
+                                title = "CURRENT SEQUENCE",
+                                subtitle = "${activeTrack?.name ?: "Piano Roll"} (${activeTrack?.notes?.size ?: 0} notes)",
+                                isSelected = midiScope == MidiScope.CURRENT_SEQUENCE,
+                                accentColor = SanwolfGold,
+                                modifier = Modifier.weight(1f)
+                            ) { midiScope = MidiScope.CURRENT_SEQUENCE }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (isRendering) {
+                    LinearProgressIndicator(
+                        progress = { progress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                        color = SanwolfGold,
+                        trackColor = SanwolfPanelElevated
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
 
                 // Status Info
                 if (statusText != null) {
@@ -273,76 +316,97 @@ fun ExportDialog(
                             color = SanwolfLime
                         )
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // Render & Share Action
-                Button(
-                    onClick = {
-                        isRendering = true
-                        statusText = "Rendering export..."
-                        scope.launch {
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    if (format == ExportFormat.WAV) {
-                                        WavExporter.exportProjectToWav(context, project, barCount)
-                                    } else {
-                                        if (midiScope == MidiScope.CURRENT_SEQUENCE && activeTrack != null) {
-                                            MidiExporter.exportTrackSequenceToMidi(context, activeTrack, project.bpm, project.title)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Render / encode / save
+                    Button(
+                        onClick = {
+                            val activeTrack = selectedTrack ?: project.tracks.firstOrNull()
+                            val chosenFormat = format
+                            val chosenAudio = audioFormat
+                            val bars = barCount
+                            val tags = ExportTags(title = project.title, artist = project.artist.ifBlank { "SANWOLF" })
+                            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US).format(java.util.Date())
+                            val baseName = com.sanwolf.daw.data.ProjectBundle.safeFileName(project.title) + "_" + stamp
+                            isRendering = true
+                            progress = 0f
+                            exportedFile = null
+                            statusText = if (chosenFormat == ExportFormat.WAV) "Rendering ${chosenAudio.label}…" else "Writing MIDI…"
+                            scope.launch {
+                                val result = withContext(Dispatchers.Default) {
+                                    runCatching {
+                                        if (chosenFormat == ExportFormat.WAV) {
+                                            val pcm = WavExporter.renderMaster(context, project, bars) { p -> progress = p * 0.55f }
+                                            val file = AudioExport.encode(context, pcm, chosenAudio, tags, baseName) { p -> progress = 0.55f + p * 0.4f }
+                                            val where = withContext(Dispatchers.IO) {
+                                                runCatching { AudioExport.saveToMusic(context, file, chosenAudio.mime) }
+                                                    .onFailure { android.util.Log.e("ExportDialog", "Save to Music failed", it) }
+                                                    .getOrNull()
+                                            }
+                                            Triple(file, chosenAudio.mime, where)
                                         } else {
-                                            MidiExporter.exportProjectToMidi(context, project)
+                                            val file = withContext(Dispatchers.IO) {
+                                                if (midiScope == MidiScope.CURRENT_SEQUENCE && activeTrack != null) {
+                                                    MidiExporter.exportTrackSequenceToMidi(context, activeTrack, project.bpm, project.title)
+                                                } else {
+                                                    MidiExporter.exportProjectToMidi(context, project)
+                                                }
+                                            }
+                                            Triple(file, "audio/midi", null as String?)
                                         }
                                     }
                                 }
+                                isRendering = false
+                                progress = 1f
+                                val (file, mime, where) = result.getOrElse { err ->
+                                    android.util.Log.e("ExportDialog", "Export failed", err)
+                                    statusText = "Export failed: ${err.message ?: err.javaClass.simpleName}"
+                                    android.widget.Toast.makeText(context, "Export failed: ${err.message ?: "unknown error"}", android.widget.Toast.LENGTH_LONG).show()
+                                    return@launch
+                                }
+                                exportedFile = file
+                                exportedMime = mime
+                                statusText = if (chosenFormat == ExportFormat.WAV) {
+                                    val loud = "%.1f LUFS integrated".format(WavExporter.lastExportIntegratedLufs)
+                                    val size = "${file.length() / 1024} KB"
+                                    if (where != null) "Saved to $where ($size) · $loud. Tap Share to send it anywhere."
+                                    else "Rendered ${file.name} ($size) · $loud. Couldn't save to Music; use Share."
+                                } else {
+                                    "Rendered '${file.name}' (${file.length() / 1024} KB). Tap Share or save to Downloads."
+                                }
                             }
-                            isRendering = false
-                            val file = result.getOrElse { err ->
-                                android.util.Log.e("ExportDialog", "Export failed", err)
-                                statusText = "Export failed: ${err.message ?: err.javaClass.simpleName}"
-                                android.widget.Toast.makeText(context, "Export failed: ${err.message ?: "unknown error"}", android.widget.Toast.LENGTH_LONG).show()
-                                return@launch
-                            }
-                            exportedFile = file
-                            val loudness = if (format == ExportFormat.WAV) {
-                                " · %.1f LUFS integrated".format(WavExporter.lastExportIntegratedLufs)
-                            } else ""
-                            statusText = "Rendered '${file.name}' (${file.length() / 1024} KB)$loudness. Opening Share Sheet..."
-
-                            // Launch Share Intent
-                            val shareIntent = if (format == ExportFormat.WAV) {
-                                WavExporter.createShareIntent(context, file)
-                            } else {
-                                MidiExporter.createShareIntent(context, file, "Share SANWOLF MIDI: ${file.name}")
-                            }
-                            runCatching {
-                                context.startActivity(Intent.createChooser(shareIntent, "Share SANWOLF Export"))
-                            }.onFailure { err ->
-                                android.util.Log.e("ExportDialog", "Share sheet failed", err)
-                                android.widget.Toast.makeText(context, "Couldn't open the share sheet", android.widget.Toast.LENGTH_SHORT).show()
-                            }
+                        },
+                        enabled = !isRendering,
+                        modifier = Modifier.weight(1f).height(44.dp).testTag("render_export_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = SanwolfGold)
+                    ) {
+                        if (isRendering) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.Black, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("RENDERING ${(progress * 100).toInt()}%", color = Color.Black, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (format == ExportFormat.MIDI) "EXPORT MIDI" else "EXPORT ${audioFormat.label.uppercase()}",
+                                color = Color.Black,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 12.sp
+                            )
                         }
-                    },
-                    enabled = !isRendering,
-                    modifier = Modifier.fillMaxWidth().height(44.dp).testTag("render_export_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = SanwolfGold)
-                ) {
-                    if (isRendering) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.Black, strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("RENDERING BUFFER...", color = Color.Black, fontWeight = FontWeight.Bold)
-                    } else {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                    }
+                    val ready = exportedFile
+                    Button(
+                        onClick = { ready?.let { openShare(it, exportedMime) } },
+                        enabled = !isRendering && ready != null,
+                        modifier = Modifier.height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SanwolfCyan)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (format == ExportFormat.MIDI && midiScope == MidiScope.CURRENT_SEQUENCE) {
-                                "EXPORT & SHARE SEQUENCE MIDI"
-                            } else {
-                                "RENDER & SHARE ${format.name}"
-                            },
-                            color = Color.Black,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 12.sp
-                        )
+                        Text("SHARE", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 12.sp)
                     }
                 }
 
@@ -350,19 +414,25 @@ fun ExportDialog(
                     Spacer(modifier = Modifier.height(6.dp))
                     Button(
                         onClick = {
+                            val activeTrack = selectedTrack ?: project.tracks.firstOrNull()
                             scope.launch {
-                                val file = exportedFile ?: withContext(Dispatchers.IO) {
-                                    if (midiScope == MidiScope.CURRENT_SEQUENCE && activeTrack != null) {
-                                        MidiExporter.exportTrackSequenceToMidi(context, activeTrack, project.bpm, project.title)
-                                    } else {
-                                        MidiExporter.exportProjectToMidi(context, project)
+                                val res = runCatching {
+                                    val file = exportedFile ?: withContext(Dispatchers.IO) {
+                                        if (midiScope == MidiScope.CURRENT_SEQUENCE && activeTrack != null) {
+                                            MidiExporter.exportTrackSequenceToMidi(context, activeTrack, project.bpm, project.title)
+                                        } else {
+                                            MidiExporter.exportProjectToMidi(context, project)
+                                        }
                                     }
+                                    exportedFile = file
+                                    exportedMime = "audio/midi"
+                                    withContext(Dispatchers.IO) { MidiExporter.saveMidiToDownloads(context, file) }
+                                    file
                                 }
-                                exportedFile = file
-                                val uri = withContext(Dispatchers.IO) {
-                                    MidiExporter.saveMidiToDownloads(context, file)
-                                }
-                                statusText = "Saved '${file.name}' to Downloads/SanwolfDaw folder!"
+                                statusText = res.fold(
+                                    onSuccess = { "Saved '${it.name}' to Downloads/SanwolfDaw folder!" },
+                                    onFailure = { "Couldn't save MIDI: ${it.message ?: "error"}" }
+                                )
                             }
                         },
                         enabled = !isRendering,
@@ -374,6 +444,25 @@ fun ExportDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ExportChip(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (selected) accent else SanwolfPanelElevated)
+            .border(1.dp, if (selected) accent else SanwolfPanelBorder, RoundedCornerShape(6.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.Black else FontWeight.Medium,
+            color = if (selected) Color.Black else SanwolfTextPrimary
+        )
     }
 }
 

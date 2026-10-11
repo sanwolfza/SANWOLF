@@ -34,6 +34,7 @@ okhttp = "4.10.0"
 moshiKotlin = "1.15.2"
 moshiKotlinCodegen = "1.15.2"
 gson = "2.11.0"
+jump3r = "1.0.5"
 datastorePreferences = "1.1.7"
 robolectric = "4.16.1"
 firebaseBom = "34.17.0"
@@ -85,6 +86,8 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshiKotlin" }
 moshi-kotlin-codegen = { group = "com.squareup.moshi", name = "moshi-kotlin-codegen", version.ref = "moshiKotlinCodegen" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+# MP3 export: pure-Java LAME port, LGPL-2.1+, used unmodified as a separate jar
+jump3r = { group = "de.sciss", name = "jump3r", version.ref = "jump3r" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }

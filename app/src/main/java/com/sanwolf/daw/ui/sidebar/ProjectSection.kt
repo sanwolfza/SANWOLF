@@ -98,10 +98,18 @@ fun ProjectSection(
     var isLoading by remember { mutableStateOf(true) }
     var localRefresh by remember { mutableIntStateOf(0) }
 
-    var showNewNameDialog by remember { mutableStateOf(false) }
     var showNewConfirm by remember { mutableStateOf(false) }
+    var showProjectsScreen by remember { mutableStateOf(false) }
+    val fileActions = com.sanwolf.daw.ui.rememberSanwolfFileActions(projectManager) { importedId -> onOpenProject(importedId) }
+
+    /** New project: blank, named "Untitled N". The open project is autosaved first (by the caller). */
+    fun startNewProject() {
+        scope.launch {
+            val name = withContext(Dispatchers.IO) { runCatching { projectManager.nextUntitledName() }.getOrDefault("Untitled") }
+            onNewProject(name)
+        }
+    }
     var showSaveAsDialog by remember { mutableStateOf(false) }
-    var pendingOpen by remember { mutableStateOf<LocalProjectSummary?>(null) }
     var renameTarget by remember { mutableStateOf<LocalProjectSummary?>(null) }
     var duplicateTarget by remember { mutableStateOf<LocalProjectSummary?>(null) }
     var deleteTarget by remember { mutableStateOf<LocalProjectSummary?>(null) }
@@ -136,8 +144,8 @@ fun ProjectSection(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 when {
+                    isDirty -> SidebarBadge("AUTOSAVING", SanwolfGold)
                     currentFileId == null -> SidebarBadge("NOT SAVED", SanwolfGold)
-                    isDirty -> SidebarBadge("UNSAVED", SanwolfGold)
                     else -> SidebarBadge("SAVED", SanwolfLime)
                 }
             }
@@ -154,8 +162,15 @@ fun ProjectSection(
             label = "New project",
             icon = Icons.Default.Add,
             tint = SanwolfCyan,
-            subtitle = "Start a blank session",
-            onClick = { if (isDirty) showNewConfirm = true else showNewNameDialog = true }
+            subtitle = "Blank session • this one stays saved",
+            onClick = { if (project.tracks.isNotEmpty()) showNewConfirm = true else startNewProject() }
+        )
+        SidebarActionRow(
+            label = "All projects…",
+            icon = Icons.Default.FolderOpen,
+            tint = SanwolfGold,
+            subtitle = "Open, rename, duplicate, delete, share",
+            onClick = { showProjectsScreen = true }
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SidebarActionRow(
@@ -177,9 +192,25 @@ fun ProjectSection(
             label = "Export",
             icon = Icons.Default.IosShare,
             tint = SanwolfTextPrimary,
-            subtitle = "WAV / MIDI mixdown",
+            subtitle = "WAV / FLAC / AAC / MP3 / MIDI → Music/SANWOLF",
             onClick = onExport
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SidebarActionRow(
+                label = "Share .sanwolf",
+                icon = Icons.Default.IosShare,
+                tint = SanwolfCyan,
+                onClick = { fileActions.shareCurrent(project) },
+                modifier = Modifier.weight(1f)
+            )
+            SidebarActionRow(
+                label = "Import",
+                icon = Icons.Default.FolderOpen,
+                tint = SanwolfLime,
+                onClick = { fileActions.importFile() },
+                modifier = Modifier.weight(1f)
+            )
+        }
 
         SidebarSectionHeader("OPEN / RECENT (ON THIS DEVICE)")
         when {
@@ -190,11 +221,10 @@ fun ProjectSection(
                     summary = summary,
                     isCurrent = summary.fileId == currentFileId,
                     onOpen = {
-                        if (summary.fileId == currentFileId && !isDirty) {
+                        if (summary.fileId == currentFileId) {
                             toast("'${summary.title}' is already open")
-                        } else if (isDirty) {
-                            pendingOpen = summary
                         } else {
+                            // The open project is autosaved before the other one loads
                             onOpenProject(summary.fileId)
                         }
                     },
@@ -224,35 +254,32 @@ fun ProjectSection(
     // --- Dialogs ---
     if (showNewConfirm) {
         SidebarConfirmDialog(
-            title = "Unsaved changes",
-            message = "'${project.title}' has changes that aren't saved. Start a new project anyway?",
-            confirmLabel = "Discard",
-            destructive = true,
-            neutralLabel = if (currentFileId != null) "Save first" else null,
-            onNeutral = if (currentFileId != null) {
-                {
-                    onSave()
-                    showNewConfirm = false
-                    showNewNameDialog = true
-                }
-            } else null,
+            title = "Start a new project?",
+            message = "'${project.title}' is saved on this device. You can reopen it any time from All projects.",
+            confirmLabel = "Start new",
             onConfirm = {
                 showNewConfirm = false
-                showNewNameDialog = true
+                startNewProject()
             },
             onDismiss = { showNewConfirm = false }
         )
     }
-    if (showNewNameDialog) {
-        SidebarNameDialog(
-            title = "New project",
-            initialValue = "Untitled ${projects.size + 1}",
-            confirmLabel = "Create",
-            onConfirm = { name ->
-                showNewNameDialog = false
-                onNewProject(name)
+    if (showProjectsScreen) {
+        com.sanwolf.daw.ui.ProjectsScreenDialog(
+            project = project,
+            projectManager = projectManager,
+            currentFileId = currentFileId,
+            refreshKey = refreshKey,
+            fileActions = fileActions,
+            onOpenProject = onOpenProject,
+            onNewProject = {
+                showProjectsScreen = false
+                if (project.tracks.isNotEmpty()) showNewConfirm = true else startNewProject()
             },
-            onDismiss = { showNewNameDialog = false }
+            onSaveAs = onSaveAs,
+            onCurrentProjectRenamed = onCurrentProjectRenamed,
+            onCurrentProjectDeleted = onCurrentProjectDeleted,
+            onDismiss = { showProjectsScreen = false; localRefresh++ }
         )
     }
     if (showSaveAsDialog) {
@@ -265,27 +292,6 @@ fun ProjectSection(
                 onSaveAs(name)
             },
             onDismiss = { showSaveAsDialog = false }
-        )
-    }
-    pendingOpen?.let { target ->
-        SidebarConfirmDialog(
-            title = "Open '${target.title}'?",
-            message = "Your current project has unsaved changes. They'll be lost if you open another project.",
-            confirmLabel = "Discard & open",
-            destructive = true,
-            neutralLabel = if (currentFileId != null) "Save & open" else null,
-            onNeutral = if (currentFileId != null) {
-                {
-                    onSave()
-                    pendingOpen = null
-                    onOpenProject(target.fileId)
-                }
-            } else null,
-            onConfirm = {
-                pendingOpen = null
-                onOpenProject(target.fileId)
-            },
-            onDismiss = { pendingOpen = null }
         )
     }
     renameTarget?.let { target ->
@@ -328,7 +334,7 @@ fun ProjectSection(
         SidebarConfirmDialog(
             title = "Delete '${target.title}'?",
             message = if (target.fileId == currentFileId)
-                "This deletes the saved file from this device. The open session stays on screen but will be unsaved."
+                "This deletes the saved project from this device. The open session stays on screen and is saved again as a new project if you keep editing."
             else
                 "This permanently deletes the saved project from this device.",
             confirmLabel = "Delete",

@@ -40,13 +40,17 @@ class DawViewModel(application: Application) : AndroidViewModel(application) {
     val selectedTrackIndex = mutableIntStateOf(0)
 
     // --- Local project file state ---
-    // Not persisted on purpose: after process death the project is the default session again,
-    // so it must not silently point at (and overwrite) a saved file.
+    // The open project's file id is remembered by ProjectSession (SharedPreferences), and
+    // ProjectLifecycleEffects reopens it on launch before autosave starts, so a fresh session
+    // never overwrites a saved file with the default project.
     val currentProjectFileId = mutableStateOf<String?>(null)
     val savedProjectJson = mutableStateOf<String?>(null)
     val isProjectDirty = mutableStateOf(false)
     val projectListVersion = mutableIntStateOf(0)
     val projectLoadKey = mutableIntStateOf(0)
+
+    /** True once the last project was (tried to be) reopened in this ViewModel's lifetime. */
+    var sessionRestoreAttempted = false
 
     init {
         audioEngine.currentProject = project
@@ -54,6 +58,16 @@ class DawViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        // Last chance to keep unsaved edits (the composable's ON_STOP flush normally did it already)
+        runCatching {
+            val pm = com.sanwolf.daw.audio.ProjectManager(getApplication<Application>())
+            val json = pm.toJson(project)
+            if (json != savedProjectJson.value) {
+                val id = currentProjectFileId.value ?: pm.newFileId()
+                ProjectSession.writeBlocking(pm, id, json).getOrThrow()
+                ProjectSession.setLastProjectId(getApplication<Application>(), id)
+            }
+        }.onFailure { Log.e(TAG, "Final project save failed", it) }
         runCatching { recordingEngine.release() }.onFailure { Log.e(TAG, "Recording engine release failed", it) }
         runCatching { audioEngine.release() }.onFailure { Log.e(TAG, "Audio engine release failed", it) }
     }

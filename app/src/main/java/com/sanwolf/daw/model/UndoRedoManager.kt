@@ -35,6 +35,12 @@ class UndoRedoManager(private val onStateChange: (ProjectData) -> Unit) {
         return gson.fromJson(nextState, ProjectData::class.java)
     }
 
+    /** Forgets all history (new project / project opened). The next saveState() is the new base. */
+    fun clear() {
+        undoStack.clear()
+        redoStack.clear()
+    }
+
     fun canUndo() = undoStack.size > 1
     fun canRedo() = redoStack.isNotEmpty()
 }

@@ -126,6 +126,8 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.gson)
+  // MP3 export (pure-Java LAME port, LGPL-2.1+, unmodified jar). See Settings > About > licences.
+  implementation(libs.jump3r)
   implementation(libs.firebase.ai)
   implementation(libs.firebase.firestore)
 

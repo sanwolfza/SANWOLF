@@ -25,6 +25,59 @@ object WavExporter {
         private set
 
     fun exportProjectToWav(context: Context, project: ProjectData, numBars: Int = 4): File {
+        val sampleRate = 44100
+        val channels = 2
+        val pcmData = renderTracks(context, project, numBars)
+        val totalSamples = pcmData.size / channels
+
+        applyMasteringToBuffer(pcmData, project)
+        lastExportIntegratedLufs = measureIntegratedLufs(pcmData)
+        Log.i(TAG, "Export integrated loudness: %.1f LUFS".format(lastExportIntegratedLufs))
+
+        val fileName = "${project.title.replace(" ", "_")}_${System.currentTimeMillis()}.wav"
+        val outFile = File(context.cacheDir, fileName)
+
+        FileOutputStream(outFile).use { fos ->
+            writeWavHeader(fos, totalSamples, channels, sampleRate)
+            val byteBuffer = ByteBuffer.allocate(pcmData.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+            for (s in pcmData) {
+                byteBuffer.putShort(s)
+            }
+            fos.write(byteBuffer.array())
+        }
+
+        return outFile
+    }
+
+    /**
+     * Renders the project through the same track and master chain as [exportProjectToWav], but
+     * keeps the master output in float (interleaved stereo, -1..1, 44.1 kHz) so encoders can write
+     * 24-bit / FLAC / AAC / MP3 from it (export/AudioExport.kt). Also sets
+     * [lastExportIntegratedLufs]. [onProgress] gets 0..1 while tracks render.
+     */
+    fun renderMaster(
+        context: Context,
+        project: ProjectData,
+        numBars: Int = 4,
+        onProgress: (Float) -> Unit = {}
+    ): FloatArray {
+        val pcmData = renderTracks(context, project, numBars, onProgress)
+        val out = FloatArray(pcmData.size)
+        applyMasteringToFloat(pcmData, out, project)
+        val measure = ShortArray(out.size) { i -> (out[i] * 32767f).toInt().coerceIn(-32768, 32767).toShort() }
+        lastExportIntegratedLufs = measureIntegratedLufs(measure)
+        Log.i(TAG, "Render integrated loudness: %.1f LUFS".format(lastExportIntegratedLufs))
+        onProgress(1f)
+        return out
+    }
+
+    /** Renders every track (pre-master) into an interleaved stereo 16-bit buffer. */
+    private fun renderTracks(
+        context: Context,
+        project: ProjectData,
+        numBars: Int,
+        onProgress: (Float) -> Unit = {}
+    ): ShortArray {
         MultisampleLibrary.init(context)
         val sampleRate = 44100
         val channels = 2
@@ -40,7 +93,9 @@ object WavExporter {
 
         // Render project tracks into buffer matching live playback 1:1 via InstrumentLibrary definitions
         val anySolo = project.tracks.any { it.solo }
-        for (track in project.tracks) {
+        val trackCount = project.tracks.size.coerceAtLeast(1)
+        for ((trackIdx, track) in project.tracks.withIndex()) {
+            onProgress(trackIdx.toFloat() / trackCount)
             if (track.muted || (anySolo && !track.solo)) continue
 
             // Audio clips (imported stems, mic takes, factory loops) start at their arranger position
@@ -91,24 +146,7 @@ object WavExporter {
 
             if (target !== pcmData) mixThroughChain(target, pcmData, rackChain)
         }
-
-        applyMasteringToBuffer(pcmData, project)
-        lastExportIntegratedLufs = measureIntegratedLufs(pcmData)
-        Log.i(TAG, "Export integrated loudness: %.1f LUFS".format(lastExportIntegratedLufs))
-
-        val fileName = "${project.title.replace(" ", "_")}_${System.currentTimeMillis()}.wav"
-        val outFile = File(context.cacheDir, fileName)
-
-        FileOutputStream(outFile).use { fos ->
-            writeWavHeader(fos, totalSamples, channels, sampleRate)
-            val byteBuffer = ByteBuffer.allocate(pcmData.size * 2).order(ByteOrder.LITTLE_ENDIAN)
-            for (s in pcmData) {
-                byteBuffer.putShort(s)
-            }
-            fos.write(byteBuffer.array())
-        }
-
-        return outFile
+        return pcmData
     }
 
     /** Mixes an audio track's file into [buffer] starting at its clip position (beats). */
@@ -274,6 +312,25 @@ object WavExporter {
             bus.process(io[0], io[1], out)
             buffer[i * 2] = (out[0] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
             buffer[i * 2 + 1] = (out[1] * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+        }
+    }
+
+    /** [applyMasteringToBuffer], but the master output stays float (no 16-bit rounding). */
+    private fun applyMasteringToFloat(buffer: ShortArray, outFloat: FloatArray, project: ProjectData) {
+        val bus = MasterBusProcessor(44100)
+        bus.configure(project.masteringConfig, project.masterVolume)
+        val inserts = buildExportChain(project.masterSlots())
+        val io = FloatArray(2)
+        val tmp = FloatArray(2)
+        val out = FloatArray(2)
+        val numFrames = buffer.size / 2
+        for (i in 0 until numFrames) {
+            io[0] = buffer[i * 2] / 32768f
+            io[1] = buffer[i * 2 + 1] / 32768f
+            if (inserts.isNotEmpty()) runFxChain(inserts, io, tmp)
+            bus.process(io[0], io[1], out)
+            outFloat[i * 2] = out[0].coerceIn(-1f, 1f)
+            outFloat[i * 2 + 1] = out[1].coerceIn(-1f, 1f)
         }
     }
 

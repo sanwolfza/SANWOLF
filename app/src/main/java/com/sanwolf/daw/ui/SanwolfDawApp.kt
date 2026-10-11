@@ -433,12 +433,15 @@ fun SanwolfDawApp() {
     }
 
     val openProjectFile: (String) -> Unit = { fileId ->
+        // Keep the open project's latest edits before switching (ui/ProjectLifecycle.kt)
+        ProjectSession.flushNow(vm, projectManager, context)
         scope.launch {
             val res = withContext(Dispatchers.IO) { projectManager.load(fileId) }
             res.onSuccess { loaded ->
                 applyLoadedProject(loaded)
                 currentProjectFileId = fileId
                 markProjectClean()
+                undoRedoManager.clear()
                 Toast.makeText(context, "Opened '${loaded.title}'", Toast.LENGTH_SHORT).show()
             }.onFailure { err ->
                 Toast.makeText(context, "Couldn't open project: ${err.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
@@ -446,21 +449,27 @@ fun SanwolfDawApp() {
         }
     }
 
+    /**
+     * New project: a truly blank session (no tracks, default BPM, no racks) named [name]. The open
+     * project is saved first, playback stops, voices are released, undo history and the editor
+     * are reset, and the new project is saved right away so a relaunch reopens it.
+     */
     val createNewProject: (String) -> Unit = { name ->
-        applyLoadedProject(
-            ProjectData(
-                title = name,
-                bpm = 120,
-                tracks = mutableListOf(
-                    TrackData(name = "Kick 808", type = TrackType.DRUM_MACHINE, colorHex = 0xFFFF1744),
-                    TrackData(name = "Synth Lead", type = TrackType.SYNTH, colorHex = 0xFF00E5FF)
-                )
-            )
-        )
-        currentProjectFileId = null
-        markProjectClean()
-        Toast.makeText(context, "Created new project '$name'", Toast.LENGTH_SHORT).show()
+        ProjectSession.flushNow(vm, projectManager, context)
+        audioEngine.stop()
+        isPianoRecording = false
+        heldRecordedNotes.clear()
+        applyLoadedProject(ProjectData(title = name, bpm = 120))
+        undoRedoManager.clear()
+        isEditorOpen = false
+        isEditorMaximized = false
+        editorOverrideKind = null
+        editorOverrideTrackId = null
+        saveProjectToFile(projectManager.newFileId(), "New project '$name'")
     }
+
+    // Reopen the last project on launch, autosave ~2 s after edits, flush on stop
+    ProjectLifecycleEffects(vm = vm, projectManager = projectManager, applyLoadedProject = applyLoadedProject)
 
     // Document Picker for Audio Import
     val audioPickerLauncher = rememberLauncherForActivityResult(
