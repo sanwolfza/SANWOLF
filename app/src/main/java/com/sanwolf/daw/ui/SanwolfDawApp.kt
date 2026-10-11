@@ -78,6 +78,8 @@ import com.sanwolf.daw.model.SynthWaveform
 import com.sanwolf.daw.model.TrackData
 import com.sanwolf.daw.model.TrackType
 import com.sanwolf.daw.model.UndoRedoManager
+import com.sanwolf.daw.model.normalizeTracks
+import com.sanwolf.daw.CrashReporter
 import com.sanwolf.daw.ui.theme.SanwolfBlack
 import com.sanwolf.daw.ui.theme.SanwolfCyan
 import com.sanwolf.daw.ui.theme.SanwolfGold
@@ -92,7 +94,7 @@ import com.sanwolf.daw.ui.theme.SanwolfTextSecondary
 @Composable
 fun SanwolfDawApp() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
     // Session state lives in the ViewModel so it survives activity recreation (engines included)
     val vm: DawViewModel = viewModel()
     val audioEngine = vm.audioEngine
@@ -108,6 +110,9 @@ fun SanwolfDawApp() {
     var undoHistoryTick by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(projectVersion) {
+        // Every edit path bumps projectVersion: keep all step arrays full length (64) so no
+        // editor / merge can index past them (AI and old projects produced 16/32-step arrays).
+        project.normalizeTracks()
         undoRedoManager.saveState(project)
         audioEngine.currentProject = project
         undoHistoryTick++
@@ -167,7 +172,7 @@ fun SanwolfDawApp() {
     var showExportDialog by remember { mutableStateOf(false) }
     var showMasterMixer by remember { mutableStateOf(false) }
     var showInstrumentSelectorForTrack by remember { mutableStateOf<TrackData?>(null) }
-    var showInstrumentBrowserForNewTrack by remember { mutableStateOf(false) }
+    var showAddTrackPicker by remember { mutableStateOf(false) }
     var showFactorySampleManager by remember { mutableStateOf(false) }
 
     // --- Local project files (Open / Save / Save As) ---
@@ -209,6 +214,7 @@ fun SanwolfDawApp() {
     }
 
     val addAudioFileTrack: (String, Uri) -> Unit = { name, uri ->
+        CrashReporter.breadcrumb("add audio track '$name'")
         val newTrack = TrackData(
             name = name,
             type = TrackType.AUDIO_IMPORT,
@@ -312,6 +318,8 @@ fun SanwolfDawApp() {
 
     /** Replaces the working project's contents with [loaded] (local file or cloud). */
     val applyLoadedProject: (ProjectData) -> Unit = { loaded ->
+        CrashReporter.breadcrumb("apply project '${loaded.title}' (${loaded.tracks.size} tracks)")
+        loaded.normalizeTracks()
         // Snapshot first: a cloud cache hit can hand back this very ProjectData instance.
         val newTracks = loaded.tracks.toList()
         val newMappings = loaded.midiMappings.toList()
@@ -363,6 +371,7 @@ fun SanwolfDawApp() {
      * players are rebuilt only when the set of audio files changed.
      */
     val restoreSnapshot: (ProjectData) -> Unit = { snap ->
+        snap.normalizeTracks()
         fun stemKeys(p: ProjectData) = p.tracks
             .filter { it.type == TrackType.AUDIO_IMPORT && !it.audioUri.isNullOrBlank() }
             .map { it.id to it.audioUri }
@@ -409,6 +418,7 @@ fun SanwolfDawApp() {
 
     /** Writes the working project to [fileId] (serialized now, written in the background). */
     val saveProjectToFile: (String, String) -> Unit = { fileId, successMessage ->
+        CrashReporter.breadcrumb("save project $fileId (${project.tracks.size} tracks)")
         project.lastSavedTimestamp = System.currentTimeMillis()
         val json = projectManager.toJson(project)
         currentProjectFileId = fileId
@@ -438,6 +448,7 @@ fun SanwolfDawApp() {
     }
 
     val openProjectFile: (String) -> Unit = { fileId ->
+        CrashReporter.breadcrumb("open project $fileId")
         // Keep the open project's latest edits before switching (ui/ProjectLifecycle.kt)
         ProjectSession.flushNow(vm, projectManager, context)
         scope.launch {
@@ -460,6 +471,7 @@ fun SanwolfDawApp() {
      * are reset, and the new project is saved right away so a relaunch reopens it.
      */
     val createNewProject: (String) -> Unit = { name ->
+        CrashReporter.breadcrumb("new project '$name'")
         ProjectSession.flushNow(vm, projectManager, context)
         audioEngine.stop()
         isPianoRecording = false
@@ -585,6 +597,7 @@ fun SanwolfDawApp() {
     }
 
     val onRecordPressed: () -> Unit = {
+        CrashReporter.breadcrumb(if (isRecordingAudio) "mic record stop" else "mic record start")
         if (isRecordingAudio) {
             stopMicRecording()
         } else if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -613,6 +626,45 @@ fun SanwolfDawApp() {
     val stopPianoRecording: () -> Unit = {
         isPianoRecording = false
         heldRecordedNotes.clear()
+    }
+
+    /**
+     * Add-track picker: one tap creates the track from [preset], names it (numbered when the name
+     * is taken), selects it and opens the editor that fits (drums -> steps, instruments -> piano roll).
+     */
+    val addInstrumentTrack: (InstrumentPreset) -> Unit = { preset ->
+        val newTrack = TrackData(
+            name = preset.name,
+            type = preset.defaultTrackType,
+            colorHex = preset.colorHex,
+            synthPresetName = preset.name,
+            synthPresetCategory = preset.category.displayName,
+            synthWaveform = preset.waveform,
+            filterCutoffHz = preset.cutoffHz,
+            filterResonance = preset.resonance,
+            attackMs = preset.attackMs,
+            decayMs = preset.decayMs,
+            sustainLevel = preset.sustainLevel,
+            releaseMs = preset.releaseMs,
+            stepCount = 16
+        )
+        // Same type rules as loading an instrument onto a track (drum kits -> DRUM_MACHINE, VCSL -> SYNTH)
+        InstrumentCatalog.applyPresetToTrack(newTrack, preset)
+        val taken = project.tracks.map { it.name.lowercase() }.toSet()
+        if (newTrack.name.lowercase() in taken) {
+            var n = 2
+            while ("${preset.name} $n".lowercase() in taken) n++
+            newTrack.name = "${preset.name} $n"
+        }
+        project.tracks.add(newTrack)
+        selectedTrackIndex = project.tracks.size - 1
+        editorOverrideKind = null
+        editorOverrideTrackId = null
+        viewMode = DawViewMode.ARRANGER
+        isEditorOpen = editorKindFor(newTrack) != EditorKind.NONE
+        CrashReporter.breadcrumb("add track '${newTrack.name}' (${newTrack.type}, preset ${preset.id})")
+        projectVersion++
+        Toast.makeText(context, "Added '${newTrack.name}'", Toast.LENGTH_SHORT).show()
     }
 
     Scaffold(
@@ -689,7 +741,7 @@ fun SanwolfDawApp() {
                             isProjectDirty = true
                             savedProjectJson = null
                         },
-                        onOpenExport = { showExportDialog = true },
+                        onOpenExport = { CrashReporter.breadcrumb("open export"); showExportDialog = true },
                         onOpenCloudProjects = { showProjectManagerDialog = true },
                         onOpenCloudSync = { showCloudSyncDialog = true },
                         onPreviewFactory = { sample -> audioEngine.triggerDrumSound(sample.name, 0.9f) },
@@ -717,9 +769,9 @@ fun SanwolfDawApp() {
                         },
                         onEnterFocusMode = { isFocusMode = true },
                         onOpenTutorial = { showTutorialDialog = true },
-                        onOpenAiStudio = { showAiStudioDialog = true },
-                        onOpenCoProducerArranger = { showCoProducerArranger = true },
-                        onOpenAiAnalyzer = { showAiPatternAnalyzer = true },
+                        onOpenAiStudio = { CrashReporter.breadcrumb("open AI studio"); showAiStudioDialog = true },
+                        onOpenCoProducerArranger = { CrashReporter.breadcrumb("open co-producer"); showCoProducerArranger = true },
+                        onOpenAiAnalyzer = { CrashReporter.breadcrumb("open AI pattern analyzer"); showAiPatternAnalyzer = true },
                         // Mastering now lives in the right-hand hub
                         onOpenMastering = {
                             rightPanelTabName = RightPanelTab.MASTER.name
@@ -754,6 +806,7 @@ fun SanwolfDawApp() {
                                         onSelectTrack = { selectedTrackIndex = it },
                                         // "Edit notes" in the track menu: open the editor that fits the track
                                         onEditInPianoRoll = { idx ->
+                                            CrashReporter.breadcrumb("open editor (track menu) track $idx")
                                             if (idx in project.tracks.indices) {
                                                 selectedTrackIndex = idx
                                                 editorOverrideKind = null
@@ -836,6 +889,7 @@ fun SanwolfDawApp() {
                                             projectVersion++
                                         },
                                         onDeleteTrack = { idx ->
+                                            CrashReporter.breadcrumb("delete track $idx")
                                             if (project.tracks.size > 1 && idx in project.tracks.indices) {
                                                 project.tracks.removeAt(idx)
                                                 if (selectedTrackIndex >= project.tracks.size) {
@@ -851,7 +905,8 @@ fun SanwolfDawApp() {
                                             showInstrumentSelectorForTrack = project.tracks.getOrNull(trackIdx)
                                         },
                                         onOpenInstrumentBrowser = {
-                                            showInstrumentBrowserForNewTrack = true
+                                            CrashReporter.breadcrumb("open add-track picker")
+                                            showAddTrackPicker = true
                                         },
                                         firebaseManager = firebaseManager,
                                         onLoadProject = { loadedProj ->
@@ -894,6 +949,7 @@ fun SanwolfDawApp() {
                                         modifier = Modifier.fillMaxSize(),
                                         // Tapping a notes clip opens the piano roll for that track directly
                                         onOpenPianoRoll = { idx ->
+                                            CrashReporter.breadcrumb("open piano roll track $idx")
                                             project.tracks.getOrNull(idx)?.let { tr ->
                                                 selectedTrackIndex = idx
                                                 editorOverrideKind = EditorKind.PIANO_ROLL.name
@@ -903,6 +959,7 @@ fun SanwolfDawApp() {
                                         },
                                         // Tapping a pattern clip opens the step sequencer for that track
                                         onOpenStepEditor = { idx ->
+                                            CrashReporter.breadcrumb("open step editor track $idx")
                                             project.tracks.getOrNull(idx)?.let { tr ->
                                                 selectedTrackIndex = idx
                                                 editorOverrideKind = EditorKind.STEPS.name
@@ -913,6 +970,7 @@ fun SanwolfDawApp() {
                                         editorToggleLabel = editorKind.label,
                                         isEditorOpen = isEditorOpen,
                                         onToggleEditor = {
+                                            CrashReporter.breadcrumb(if (isEditorOpen) "close editor" else "open editor (${editorKind.name})")
                                             isEditorOpen = !isEditorOpen
                                             if (!isEditorOpen) isEditorMaximized = false
                                         },
@@ -1058,6 +1116,8 @@ fun SanwolfDawApp() {
                                                                 stepCount = 32
                                                             )
                                                         )
+                                                        selectedTrackIndex = project.tracks.size - 1
+                                                        CrashReporter.breadcrumb("quick add track '$name' ($type)")
                                                         projectVersion++
                                                     },
                                                     modifier = Modifier.fillMaxSize(),
@@ -1165,25 +1225,30 @@ fun SanwolfDawApp() {
                 canRedo = remember(undoHistoryTick, projectVersion) { undoRedoManager.canRedo() },
                 // undo()/redo() return a snapshot; restoreSnapshot copies it in without stopping playback
                 onUndo = {
+                    CrashReporter.breadcrumb("undo")
                     val snapshot = undoRedoManager.undo(project)
                     if (snapshot != null) restoreSnapshot(snapshot)
                     else Toast.makeText(context, "Nothing to undo", Toast.LENGTH_SHORT).show()
                     undoHistoryTick++
                 },
                 onRedo = {
+                    CrashReporter.breadcrumb("redo")
                     val snapshot = undoRedoManager.redo(project)
                     if (snapshot != null) restoreSnapshot(snapshot)
                     else Toast.makeText(context, "Nothing to redo", Toast.LENGTH_SHORT).show()
                     undoHistoryTick++
                 },
                 onPlayToggle = {
+                    CrashReporter.breadcrumb(if (audioEngine.isPlaying) "pause" else "play (${project.tracks.size} tracks)")
                     if (audioEngine.isPlaying) audioEngine.pause() else audioEngine.play()
                 },
                 onStop = {
+                    CrashReporter.breadcrumb("stop")
                     audioEngine.stop()
                     stopPianoRecording()
                 },
                 onPianoRecordToggle = {
+                    CrashReporter.breadcrumb(if (isPianoRecording) "piano record off" else "piano record on")
                     if (isPianoRecording) {
                         stopPianoRecording()
                     } else {
@@ -1298,7 +1363,7 @@ fun SanwolfDawApp() {
             },
             selectedTab = rightPanelTab,
             onSelectTab = { rightPanelTabName = it.name },
-            onOpenExport = { showExportDialog = true },
+            onOpenExport = { CrashReporter.breadcrumb("open export"); showExportDialog = true },
             onMasteringChanged = { projectVersion++ },
             onMasterVolumeChange = {
                 project.masterVolume = it
@@ -1317,8 +1382,12 @@ fun SanwolfDawApp() {
                 aiClient = aiClient,
                 audioEngine = audioEngine,
                 onApplyFinishedTrack = { finishing ->
+                    CrashReporter.breadcrumb("AI apply finished track '${finishing.newTrack.name}'")
+                    finishing.newTrack.normalizeSteps()
                     project.tracks.add(finishing.newTrack)
                     project.masteringConfig = finishing.masteringConfig
+                    selectedTrackIndex = project.tracks.size - 1
+                    projectVersion++
                     Toast.makeText(context, "AI Studio: Added ${finishing.newTrack.name}", Toast.LENGTH_LONG).show()
                 },
                 onApplyLyriaTrack = { lyria ->
@@ -1328,7 +1397,10 @@ fun SanwolfDawApp() {
                         colorHex = 0xFF00E5FF,
                         notes = lyria.notes.toMutableList()
                     )
+                    CrashReporter.breadcrumb("AI apply Lyria track")
                     project.tracks.add(newLyriaTrack)
+                    selectedTrackIndex = project.tracks.size - 1
+                    projectVersion++
                     Toast.makeText(context, "Lyria Audio Track added!", Toast.LENGTH_SHORT).show()
                 },
                 onApplyClonedTrack = { clone ->
@@ -1339,19 +1411,28 @@ fun SanwolfDawApp() {
                         steps = clone.addedDrumSteps,
                         notes = clone.addedLeadNotes.toMutableList()
                     )
+                    CrashReporter.breadcrumb("AI apply cloned track")
                     project.tracks.add(newCloneTrack)
                     project.masteringConfig.targetLufs = clone.targetLufs
                     project.masteringConfig.lowGainDb = clone.eqLowGain
                     project.masteringConfig.highGainDb = clone.eqHighGain
+                    selectedTrackIndex = project.tracks.size - 1
+                    projectVersion++
                     Toast.makeText(context, "Cloned & Re-Mastered track added!", Toast.LENGTH_SHORT).show()
                 },
                 onApplyGeneratedMusic = { result ->
+                    CrashReporter.breadcrumb("AI apply generated music (${result.tracks.size} tracks)")
+                    audioEngine.stop()
                     project.title = result.title
-                    project.bpm = result.bpm
+                    project.bpm = result.bpm.coerceIn(40, 240)
                     project.tracks.clear()
                     project.tracks.addAll(result.tracks)
+                    project.normalizeTracks()
                     project.masteringConfig = result.masteringConfig
                     selectedTrackIndex = 0
+                    isEditorOpen = false
+                    editorOverrideKind = null
+                    projectVersion++
                     viewMode = DawViewMode.ARRANGER
 
                     // Restart audio engine playback with new stems
@@ -1366,8 +1447,12 @@ fun SanwolfDawApp() {
                     ).show()
                 },
                 onApplyArrangement = { arrangement ->
+                    CrashReporter.breadcrumb("AI apply arrangement (${arrangement.arrangedTracks.size} tracks)")
                     project.tracks.clear()
                     project.tracks.addAll(arrangement.arrangedTracks)
+                    project.normalizeTracks()
+                    if (selectedTrackIndex >= project.tracks.size) selectedTrackIndex = (project.tracks.size - 1).coerceAtLeast(0)
+                    projectVersion++
                     showAiStudioDialog = false
                     Toast.makeText(context, arrangement.explanation, Toast.LENGTH_LONG).show()
                 },
@@ -1379,8 +1464,11 @@ fun SanwolfDawApp() {
             CoProducerArrangerOverlay(
                 project = project,
                 onApplyArrangement = { updatedProj ->
+                    CrashReporter.breadcrumb("co-producer apply")
                     project.tracks.clear()
                     project.tracks.addAll(updatedProj.tracks)
+                    project.normalizeTracks()
+                    if (selectedTrackIndex >= project.tracks.size) selectedTrackIndex = (project.tracks.size - 1).coerceAtLeast(0)
                     showCoProducerArranger = false
                     projectVersion++
                     Toast.makeText(context, "System AI Co-Producer Arrangement Applied!", Toast.LENGTH_SHORT).show()
@@ -1395,8 +1483,10 @@ fun SanwolfDawApp() {
                 onApplySuggestion = { suggestion ->
                     val targetTrack = project.tracks.getOrNull(selectedTrackIndex) ?: project.tracks.firstOrNull()
                     if (targetTrack != null) {
-                        targetTrack.stepCount = suggestion.recommendedStepCount
-                        for (i in 0 until 64) {
+                        CrashReporter.breadcrumb("AI pattern '${suggestion.title}' -> '${targetTrack.name}'")
+                        targetTrack.normalizeSteps()
+                        targetTrack.stepCount = suggestion.recommendedStepCount.coerceIn(1, 64)
+                        for (i in targetTrack.steps.indices) {
                             targetTrack.steps[i] = if (i < suggestion.steps.size) suggestion.steps[i] else false
                         }
                         targetTrack.notes.clear()
@@ -1499,32 +1589,27 @@ fun SanwolfDawApp() {
             )
         }
 
-        if (showInstrumentBrowserForNewTrack) {
-            InstrumentSelectorDialog(
-                currentTrack = null,
+        if (showAddTrackPicker) {
+            AddTrackPicker(
                 audioEngine = audioEngine,
-                onPresetSelected = { preset ->
-                    val newTrack = TrackData(
-                        name = preset.name,
-                        type = preset.defaultTrackType,
-                        colorHex = preset.colorHex,
-                        synthPresetName = preset.name,
-                        synthPresetCategory = preset.category.displayName,
-                        synthWaveform = preset.waveform,
-                        filterCutoffHz = preset.cutoffHz,
-                        filterResonance = preset.resonance,
-                        attackMs = preset.attackMs,
-                        decayMs = preset.decayMs,
-                        sustainLevel = preset.sustainLevel,
-                        releaseMs = preset.releaseMs
-                    )
-                    project.tracks.add(newTrack)
-                    selectedTrackIndex = project.tracks.size - 1
-                    Toast.makeText(context, "Added track '${preset.name}'", Toast.LENGTH_SHORT).show()
-                    projectVersion++
-                    showInstrumentBrowserForNewTrack = false
+                onAddInstrument = { preset ->
+                    showAddTrackPicker = false
+                    addInstrumentTrack(preset)
                 },
-                onDismiss = { showInstrumentBrowserForNewTrack = false }
+                onRecordMic = {
+                    showAddTrackPicker = false
+                    onRecordPressed()
+                },
+                onImportAudio = {
+                    showAddTrackPicker = false
+                    CrashReporter.breadcrumb("import audio (picker)")
+                    audioPickerLauncher.launch(arrayOf("audio/*"))
+                },
+                onBrowseSounds = {
+                    showAddTrackPicker = false
+                    showFactorySampleManager = true
+                },
+                onDismiss = { showAddTrackPicker = false }
             )
         }
 

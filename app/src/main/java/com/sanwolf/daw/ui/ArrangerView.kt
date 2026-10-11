@@ -236,14 +236,13 @@ fun ArrangerView(
     onToggleEditor: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope { com.sanwolf.daw.CrashReporter.coroutineHandler }
     val density = LocalDensity.current
     val dawFirebaseManager = remember(firebaseManager) { firebaseManager ?: FirebaseDawManager(context) }
 
     var showProjectManagementPanel by remember { mutableStateOf(false) }
     var expandedFxTrackIndex by remember { mutableStateOf<Int?>(null) }
     var expandedAutomationTrackIndex by remember { mutableStateOf<Int?>(null) }
-    var showAddTrackMenu by remember { mutableStateOf(false) }
     var renameTrackIndex by remember { mutableStateOf<Int?>(null) }
 
     // Timeline view state
@@ -382,14 +381,16 @@ fun ArrangerView(
                     }
                 } else if (crossTrack && compatible) {
                     // Merge the pattern into the target lane, then clear the source pattern
+                    src.normalizeSteps()
+                    dst.normalizeSteps()
                     for (i in 0 until count) {
-                        if (src.steps[i]) {
+                        if (src.steps.getOrElse(i) { false } && i in dst.steps.indices) {
                             dst.steps[i] = true
-                            dst.stepVelocities[i] = src.stepVelocities[i]
+                            if (i in dst.stepVelocities.indices) dst.stepVelocities[i] = src.stepVelocities.getOrElse(i) { 0.8f }
                         }
                     }
                     if (dst.stepCount < count) dst.stepCount = count
-                    for (i in 0 until count) src.steps[i] = false
+                    for (i in 0 until minOf(count, src.steps.size)) src.steps[i] = false
                     onSelectTrack(targetIdx)
                     changed = true
                 } else {
@@ -437,7 +438,8 @@ fun ArrangerView(
                             .heightIn(min = 30.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(SanwolfGold)
-                            .clickable { showAddTrackMenu = true }
+                            // One simple picker for every kind of track (ui/AddTrackPicker.kt)
+                            .clickable { onOpenInstrumentBrowser() }
                             .padding(horizontal = 10.dp)
                             .testTag("add_track_button"),
                         verticalAlignment = Alignment.CenterVertically
@@ -445,21 +447,6 @@ fun ArrangerView(
                         Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Track", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black, modifier = Modifier.padding(vertical = 4.dp))
-                    }
-                    DropdownMenu(
-                        expanded = showAddTrackMenu,
-                        onDismissRequest = { showAddTrackMenu = false },
-                        modifier = Modifier.background(SanwolfPanelElevated)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Browse instruments…", color = SanwolfGold, fontWeight = FontWeight.Bold) },
-                            onClick = { onOpenInstrumentBrowser(); showAddTrackMenu = false }
-                        )
-                        DropdownMenuItem(text = { Text("Quick synth", color = SanwolfCyan) }, onClick = { onAddTrack(TrackType.SYNTH); showAddTrackMenu = false })
-                        DropdownMenuItem(text = { Text("Quick drum", color = SanwolfOrange) }, onClick = { onAddTrack(TrackType.DRUM_MACHINE); showAddTrackMenu = false })
-                        DropdownMenuItem(text = { Text("Modular synth rack", color = SanwolfGold) }, onClick = { onAddTrack(TrackType.MODULAR_SYNTH); showAddTrackMenu = false })
-                        DropdownMenuItem(text = { Text("Audio stem / vocal", color = SanwolfMagenta) }, onClick = { onAddTrack(TrackType.AUDIO_IMPORT); showAddTrackMenu = false })
-                        DropdownMenuItem(text = { Text("Ambient riser FX", color = SanwolfLime) }, onClick = { onAddTrack(TrackType.RISER_TEXTURE); showAddTrackMenu = false })
                     }
                 }
 
