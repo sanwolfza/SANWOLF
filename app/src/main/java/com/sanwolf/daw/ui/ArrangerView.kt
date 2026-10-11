@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -89,6 +90,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
@@ -105,6 +108,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -151,6 +155,9 @@ private enum class ClipKind { NOTES, PATTERN, AUDIO }
 private data class ArrClip(val kind: ClipKind, val startBeat: Double, val endBeat: Double)
 
 private data class ClipHit(val clip: ArrClip, val isResizeEdge: Boolean)
+
+/** Long-press menu target: the track, the clip kind, and where the finger was (lane px). */
+private data class ClipMenuState(val trackIndex: Int, val kind: ClipKind, val x: Float, val y: Float)
 
 /** Grid sizes for clip moves (in beats). */
 private val SNAP_OPTIONS = listOf(0.25 to "1/16", 1.0 to "Beat", 4.0 to "Bar")
@@ -271,7 +278,8 @@ fun ArrangerView(
     var dragDy by remember { mutableFloatStateOf(0f) }
     val laneTops = remember { HashMap<Int, Float>() }
     val extraHeights = remember { mutableStateMapOf<String, Int>() }
-    val tapGuard = remember { BooleanArray(1) }
+    // Long-press clip menu (Edit / Duplicate / Rename / Delete)
+    var clipMenu by remember { mutableStateOf<ClipMenuState?>(null) }
 
     val safeSelectedTrackIndex = selectedTrackIndex.coerceIn(0, (project.tracks.size - 1).coerceAtLeast(0))
     val anySolo = project.tracks.any { it.solo }
@@ -303,6 +311,112 @@ fun ArrangerView(
             }
         }
         return best
+    }
+
+    /** Tap / double tap / menu "Edit" on a clip: select the track and open that clip's editor. */
+    fun openClipEditor(idx: Int, kind: ClipKind) {
+        onSelectTrack(idx)
+        when (kind) {
+            ClipKind.NOTES -> onOpenPianoRoll(idx)
+            ClipKind.PATTERN -> onOpenStepEditor(idx)
+            ClipKind.AUDIO -> Unit
+        }
+    }
+
+    /**
+     * Tap on empty grid: select the track; on a drum / instrument track with no clip of its kind
+     * yet, create one at the tapped bar (a one-bar pattern with a downbeat, or a one-bar notes
+     * clip with a C4), then open its editor. A track has one notes clip and one pattern clip,
+     * so when one already exists the editor opens on it instead.
+     */
+    fun tapEmptyLane(idx: Int, x: Float) {
+        val t = project.tracks.getOrNull(idx) ?: return
+        onSelectTrack(idx)
+        val barBeat = (floor((x / beatPx) / 4.0) * 4.0).coerceIn(0.0, (ARR_TOTAL_BEATS - 4).toDouble())
+        when (t.type) {
+            TrackType.AUDIO_IMPORT -> Unit
+            TrackType.DRUM_MACHINE -> {
+                t.normalizeSteps()
+                val count = t.stepCount.coerceIn(1, 64)
+                val hasPattern = (0 until count).any { t.steps.getOrElse(it) { false } }
+                if (!hasPattern) {
+                    t.stepCount = 16
+                    t.patternStartBeat = barBeat
+                    t.steps[0] = true
+                    localRev++
+                    onClipsChanged()
+                }
+                onOpenStepEditor(idx)
+            }
+            else -> {
+                if (t.notes.isEmpty()) {
+                    t.notes.add(com.sanwolf.daw.model.MidiNote(pitch = 60, startBeat = barBeat, lengthBeats = 1.0, velocity = 0.8f))
+                    t.notesClipEndBeat = barBeat + 4.0
+                    localRev++
+                    onClipsChanged()
+                }
+                onOpenPianoRoll(idx)
+            }
+        }
+    }
+
+    /** Menu "Duplicate": notes clip -> a copy right after it; pattern -> a copy of the drum track. */
+    fun duplicateClip(idx: Int, kind: ClipKind) {
+        val t = project.tracks.getOrNull(idx) ?: return
+        when (kind) {
+            ClipKind.NOTES -> {
+                val clip = clipsFor(t, project.bpm).firstOrNull { it.kind == ClipKind.NOTES } ?: return
+                val len = clip.endBeat - clip.startBeat
+                if (clip.endBeat + len > ARR_TOTAL_BEATS) {
+                    Toast.makeText(context, "No room after this clip (16-bar song)", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val copies = t.notes.filter { t.isNoteInClip(it) && it.startBeat >= clip.startBeat }
+                    .map { it.copy(id = java.util.UUID.randomUUID().toString(), startBeat = it.startBeat + len) }
+                t.notes.addAll(copies)
+                if (t.notesClipEndBeat > 0.0) t.notesClipEndBeat = clip.endBeat + len
+            }
+            ClipKind.PATTERN -> {
+                val copy = t.copy(
+                    id = java.util.UUID.randomUUID().toString(),
+                    name = "${t.name} copy",
+                    steps = t.steps.copyOf(),
+                    stepVelocities = t.stepVelocities.copyOf(),
+                    notes = t.notes.map { it.copy(id = java.util.UUID.randomUUID().toString()) }.toMutableList(),
+                    fxChain = mutableListOf(),
+                    automationLanes = mutableListOf(),
+                    fxRack = null,
+                    solo = false
+                )
+                project.tracks.add((idx + 1).coerceAtMost(project.tracks.size), copy)
+                onSelectTrack((idx + 1).coerceAtMost(project.tracks.size - 1))
+            }
+            ClipKind.AUDIO -> return
+        }
+        localRev++
+        onClipsChanged()
+    }
+
+    /** Menu "Delete": empties the notes clip or the pattern; an audio clip deletes its track. */
+    fun deleteClip(idx: Int, kind: ClipKind) {
+        val t = project.tracks.getOrNull(idx) ?: return
+        when (kind) {
+            ClipKind.NOTES -> {
+                t.notes.clear()
+                t.notesClipEndBeat = 0.0
+            }
+            ClipKind.PATTERN -> {
+                t.normalizeSteps()
+                t.steps.fill(false)
+            }
+            ClipKind.AUDIO -> {
+                onDeleteTrack(idx)
+                localRev++
+                return
+            }
+        }
+        localRev++
+        onClipsChanged()
     }
 
     fun resetDrag() {
@@ -633,7 +747,11 @@ fun ArrangerView(
                                     isFxExpanded = expandedFxTrackIndex == index,
                                     isAutomationExpanded = expandedAutomationTrackIndex == index,
                                     anySoloActive = anySolo,
-                                    onSelect = { onSelectTrack(index) },
+                                    // Tapping the header selects the track and opens its editor (not for audio)
+                                    onSelect = {
+                                        onSelectTrack(index)
+                                        if (track.type != TrackType.AUDIO_IMPORT) onEditInPianoRoll(index)
+                                    },
                                     onEditPianoRoll = { onEditInPianoRoll(index) },
                                     onSelectInstrument = { onSelectInstrumentForTrack(index) },
                                     onVolumeChange = { onTrackVolumeChange(index, it); localRev++ },
@@ -707,50 +825,85 @@ fun ArrangerView(
                                                     else if (isSelected) SanwolfPanelElevated
                                                     else SanwolfBlack
                                                 )
-                                                .pointerInput(index, track.id, beatPx, localRev) {
-                                                    detectTapGestures(
-                                                        onPress = { tapGuard[0] = false },
-                                                        onTap = { pos ->
-                                                            if (tapGuard[0]) return@detectTapGestures
-                                                            val hit = hitTestClip(clipsFor(track, project.bpm), pos, size.height.toFloat(), beatPx, 20.dp.toPx())
-                                                            onSelectTrack(index)
-                                                            when (hit?.clip?.kind) {
-                                                                ClipKind.NOTES -> onOpenPianoRoll(index)
-                                                                ClipKind.PATTERN -> onOpenStepEditor(index)
-                                                                else -> Unit
+                                                // One gesture handler (FL Studio Mobile style): tap a clip = select + open
+                                                // its editor, double tap = the same, hold = clip menu, drag past the touch
+                                                // slop = move / resize. Taps on empty grid select the track and create a
+                                                // clip there. Only clip drags are consumed, so empty-lane swipes still scroll.
+                                                .pointerInput(index, track.id, beatPx, localRev, snapBeats) {
+                                                    val edgePx = 20.dp.toPx()
+                                                    val slop = viewConfiguration.touchSlop
+                                                    val longPressMs = viewConfiguration.longPressTimeoutMillis
+                                                    awaitEachGesture {
+                                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                                        val laneH = size.height.toFloat()
+                                                        val hit = hitTestClip(clipsFor(track, project.bpm), down.position, laneH, beatPx, edgePx)
+                                                        // 0 = finger lifted (tap), 1 = moved past slop, 2 = cancelled, null = long press
+                                                        var lastPos = down.position
+                                                        val outcome: Int? = withTimeoutOrNull(longPressMs) {
+                                                            var result = 2
+                                                            while (true) {
+                                                                val ev = awaitPointerEvent()
+                                                                if (ev.changes.count { it.pressed } > 1) { result = 2; break }
+                                                                val ch = ev.changes.firstOrNull { it.id == down.id }
+                                                                if (ch == null) { result = 2; break }
+                                                                if (ch.changedToUpIgnoreConsumed()) { result = 0; break }
+                                                                if (ch.isConsumed) { result = 2; break }
+                                                                lastPos = ch.position
+                                                                if ((ch.position - down.position).getDistance() > slop) { result = 1; break }
                                                             }
+                                                            result
                                                         }
-                                                    )
-                                                }
-                                                .pointerInput(index, track.id, beatPx, localRev) {
-                                                    detectDragGesturesAfterLongPress(
-                                                        onDragStart = { pos ->
-                                                            tapGuard[0] = true
-                                                            val hit = hitTestClip(clipsFor(track, project.bpm), pos, size.height.toFloat(), beatPx, 20.dp.toPx())
-                                                            when {
-                                                                hit == null -> resetDrag()
-                                                                else -> {
-                                                                    dragTrack = index
-                                                                    dragKind = hit.clip.kind
-                                                                    // Right edge resizes pattern and notes clips; audio clips only move
-                                                                    dragResize = hit.isResizeEdge && hit.clip.kind != ClipKind.AUDIO
-                                                                    dragStartY = pos.y
-                                                                    dragDx = 0f
-                                                                    dragDy = 0f
-                                                                    onSelectTrack(index)
+                                                        when (outcome) {
+                                                            0 -> {
+                                                                if (hit != null) {
+                                                                    openClipEditor(index, hit.clip.kind)
+                                                                } else {
+                                                                    tapEmptyLane(index, down.position.x)
                                                                 }
                                                             }
-                                                        },
-                                                        onDrag = { change, amount ->
-                                                            change.consume()
-                                                            if (dragTrack == index) {
-                                                                dragDx += amount.x
-                                                                dragDy += amount.y
+                                                            null -> {
+                                                                // Long press: clip menu (or just select on empty grid)
+                                                                onSelectTrack(index)
+                                                                if (hit != null) {
+                                                                    clipMenu = ClipMenuState(index, hit.clip.kind, down.position.x, down.position.y)
+                                                                }
+                                                                // Swallow the rest of this touch so it doesn't scroll
+                                                                while (true) {
+                                                                    val ev = awaitPointerEvent()
+                                                                    ev.changes.forEach { it.consume() }
+                                                                    if (ev.changes.none { it.pressed }) break
+                                                                }
                                                             }
-                                                        },
-                                                        onDragEnd = { if (dragTrack == index) commitDrag() },
-                                                        onDragCancel = { resetDrag() }
-                                                    )
+                                                            1 -> if (hit != null) {
+                                                                // Drag a clip: move it (or resize from its right edge)
+                                                                dragTrack = index
+                                                                dragKind = hit.clip.kind
+                                                                dragResize = hit.isResizeEdge && hit.clip.kind != ClipKind.AUDIO
+                                                                dragStartY = down.position.y
+                                                                // Start from the slop distance so the clip stays under the finger
+                                                                dragDx = lastPos.x - down.position.x
+                                                                dragDy = lastPos.y - down.position.y
+                                                                onSelectTrack(index)
+                                                                var finished = false
+                                                                while (true) {
+                                                                    val ev = awaitPointerEvent()
+                                                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                                                    if (ch.changedToUpIgnoreConsumed()) {
+                                                                        finished = true
+                                                                        break
+                                                                    }
+                                                                    val delta = ch.positionChange()
+                                                                    ch.consume()
+                                                                    if (dragTrack == index) {
+                                                                        dragDx += delta.x
+                                                                        dragDy += delta.y
+                                                                    }
+                                                                }
+                                                                if (finished && dragTrack == index) commitDrag() else resetDrag()
+                                                            }
+                                                            else -> Unit
+                                                        }
+                                                    }
                                                 }
                                         ) {
                                             LaneCanvas(
@@ -781,6 +934,46 @@ fun ArrangerView(
                                                         .align(Alignment.TopEnd)
                                                         .padding(4.dp)
                                                 )
+                                            }
+
+                                            // Long-press clip menu, anchored where the finger was
+                                            val menu = clipMenu
+                                            if (menu != null && menu.trackIndex == index) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .offset { IntOffset(menu.x.roundToInt(), menu.y.roundToInt()) }
+                                                        .size(1.dp)
+                                                ) {
+                                                    DropdownMenu(
+                                                        expanded = true,
+                                                        onDismissRequest = { clipMenu = null },
+                                                        modifier = Modifier.background(SanwolfPanelElevated)
+                                                    ) {
+                                                        if (menu.kind != ClipKind.AUDIO) {
+                                                            DropdownMenuItem(
+                                                                text = { Text("Edit", color = SanwolfGold, fontWeight = FontWeight.Bold) },
+                                                                onClick = { clipMenu = null; openClipEditor(index, menu.kind) }
+                                                            )
+                                                            DropdownMenuItem(
+                                                                text = { Text("Duplicate", color = SanwolfTextPrimary) },
+                                                                onClick = { clipMenu = null; duplicateClip(index, menu.kind) }
+                                                            )
+                                                        }
+                                                        DropdownMenuItem(
+                                                            text = { Text("Rename track", color = SanwolfTextPrimary) },
+                                                            onClick = { clipMenu = null; renameTrackIndex = index }
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = {
+                                                                Text(
+                                                                    if (menu.kind == ClipKind.AUDIO) "Delete track" else "Delete clip",
+                                                                    color = SanwolfMagenta
+                                                                )
+                                                            },
+                                                            onClick = { clipMenu = null; deleteClip(index, menu.kind) }
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
 
